@@ -129,6 +129,40 @@ export const generateImage = async (req, res, next) => {
   }
 };
 
+export const getModels = async (req, res, next) => {
+  try {
+    const supportedModels = {
+      // Public models (safe defaults for AMD/CPU hosts)
+      'runwayml/stable-diffusion-v1-5': 'Stable Diffusion 1.5 (Public)',
+      'stabilityai/sdxl-turbo': 'SDXL Turbo (Very fast)',
+      'lykon/dreamshaper-8': 'DreamShaper (Artistic)',
+      'stable-diffusion-1.5': 'Stable Diffusion 1.5 (short name)',
+      'sdxl-turbo': 'SDXL Turbo (short name)',
+      'dreamshaper': 'DreamShaper (short name)',
+
+      // Premium models (require authentication/token)
+      'stabilityai/stable-diffusion-3.5': 'Stable Diffusion 3.5',
+      'stabilityai/stable-diffusion-3.5-large': 'Stable Diffusion 3.5 Large',
+      'stable-diffusion-3.5': 'Stable Diffusion 3.5 (short name)',
+      'stable-diffusion-3.5-large': 'Stable Diffusion 3.5 Large (short name)',
+
+      // Additional community models
+      'prompthero/openjourney': 'OpenJourney (Midjourney style)',
+      'Linaqruf/anything-v3.0': 'Anything V3 (Anime)',
+      'openjourney': 'OpenJourney (short name)',
+      'anything-v3': 'Anything V3 (short name)',
+
+      // Fallback alias
+      'FLUX.1-dev': 'Flux model (fallback)'
+    };
+
+    res.status(200).json({ models: supportedModels });
+  } catch (error) {
+    logger.error("Error fetching models:", error);
+    next(error);
+  }
+};
+
 export const editImage = async (req, res, next) => {
   try {
     const { image_url, prompt, model } = req.body;

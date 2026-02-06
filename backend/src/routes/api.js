@@ -13,6 +13,8 @@ import { studioRoutes } from './studioRoutes.js';
 // Social modules
 import { youtubeRoutes } from './youtube.js';
 import { instagramRoutes } from './instagram.js';
+import { tiktokYoutubeRoutes } from './tiktokYoutube.js';
+import { universalRoutes } from './universal.js';
 
 const router = Router();
 
@@ -27,6 +29,12 @@ router.use('/youtube', youtubeRoutes);
 
 // Instagram routes
 router.use('/instagram', instagramRoutes);
+
+// TikTok and YouTube download routes
+router.use('/', tiktokYoutubeRoutes);
+
+// Universal download routes (Facebook, Amazon, Shopee)
+router.use('/', universalRoutes);
 
 // Media studio versioned routes
 router.use('/v1/audio', audioRoutes);

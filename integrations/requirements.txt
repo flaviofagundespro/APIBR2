@@ -23,6 +23,8 @@ numpy>=1.24.0
 # Video Processing
 moviepy>=1.0.3
 ffmpeg-python>=0.2.0
+yt-dlp>=2025.11.12  # Keep updated for TikTok compatibility
+browser-cookie3>=0.19.1  # Optional: for automatic browser cookie extraction
 
 # HTTP Requests
 requests>=2.31.0

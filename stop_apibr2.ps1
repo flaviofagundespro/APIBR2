@@ -31,4 +31,7 @@ Kill-Port 5001
 # Parar Instagram Server (5002)
 Kill-Port 5002
 
+# Parar Frontend (5173)
+Kill-Port 5173
+
 Write-Host "Todos os serviços foram parados." -ForegroundColor Green

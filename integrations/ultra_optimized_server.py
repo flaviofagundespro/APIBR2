@@ -230,7 +230,7 @@ def get_pipe(model_name):
         'dreamshaper': 'lykon/dreamshaper-8',
         'openjourney': 'prompthero/openjourney',
         'anything-v3': 'Linaqruf/anything-v3.0',
-        'FLUX.1-dev': 'runwayml/stable-diffusion-v1-5'
+        'FLUX.1-dev': 'black-forest-labs/FLUX.1-schnell'
     }
     
     full_model_name = model_mapping.get(model_name, model_name)
@@ -240,6 +240,33 @@ def get_pipe(model_name):
         try:
             device = detect_device()
             
+            # --- 1. FLUX Handling (Specific Logic) ---
+            if "flux" in full_model_name.lower():
+                from diffusers import FluxPipeline
+                logger.info("Flux model detected. Using FluxPipeline with bfloat16.")
+                
+                if device == "dml":
+                    logger.warning("⚠️ FLUX on DirectML (Windows) might be extremely slow or fail. Expect issues.")
+                
+                # Flux requires bfloat16 for best results/compatibility
+                pipes[full_model_name] = FluxPipeline.from_pretrained(
+                    full_model_name,
+                    torch_dtype=torch.bfloat16,
+                    token=os.getenv("HUGGINGFACE_HUB_TOKEN")
+                )
+                
+                # Flux is VRAM hungry; force offload to system RAM even on GPU
+                # This ensures it fits in 12GB VRAM cards alongside Windows overhead
+                try:
+                    pipes[full_model_name].enable_model_cpu_offload()
+                    logger.info("Enabled CPU offload for Flux.")
+                except Exception as e:
+                    logger.warning(f"Could not enable CPU offload for Flux: {e}")
+                    
+                # Return immediately as Flux doesn't use the standard schedulers/optimizations below
+                return pipes[full_model_name]
+
+            # --- 2. Standard SD/SDXL Handling ---
             if device == "dml":
                 torch_dtype = torch.float32
             elif device == "cuda":
@@ -251,14 +278,27 @@ def get_pipe(model_name):
             
             from diffusers import StableDiffusionPipeline
             
+            # Determine if we should apply Long Prompt Weighting (LPW)
+            # Only for SD 1.5 based models. SDXL handles text differently (dual encoders).
+            is_sdxl = "sdxl" in full_model_name.lower()
+            custom_pipe_arg = None
+            
+            if not is_sdxl:
+                custom_pipe_arg = "lpw_stable_diffusion"
+                logger.info("Enabling Long Prompt Weighting (LPW) for SD 1.5 model")
+            else:
+                logger.info("SDXL detected - skipping LPW (using native dual-encoder handling)")
+
             pipes[full_model_name] = StableDiffusionPipeline.from_pretrained(
                 full_model_name, 
                 torch_dtype=torch_dtype,
                 safety_checker=None,  # Disable safety checker for throughput gains
                 requires_safety_checker=False,
-                use_auth_token=os.getenv("HUGGINGFACE_HUB_TOKEN")
+                token=os.getenv("HUGGINGFACE_HUB_TOKEN"), # Updated from use_auth_token
+                custom_pipeline=custom_pipe_arg
             )
             
+            # Apply Device-Specific Optimizations
             if device == "dml":
                 try:
                     pipes[full_model_name] = pipes[full_model_name].to("dml")
@@ -301,6 +341,7 @@ def get_pipe(model_name):
                 except:
                     logger.info("Applied CPU optimizations (standard mode)")
             
+            # Apply Scheduler Configuration
             model_config = get_model_config(full_model_name, device)
             pipes[full_model_name] = get_scheduler(
                 pipes[full_model_name], 

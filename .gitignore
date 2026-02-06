@@ -28,6 +28,9 @@ coverage/
 *.swo
 .DS_Store
 
+# Claude Code
+.claude/
+
 # Project Specific
 integrations/generated_images/
 integrations/downloads/

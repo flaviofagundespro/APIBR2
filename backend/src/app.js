@@ -15,7 +15,9 @@ import { apiRoutes } from './routes/api.js';
 const app = express();
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+}));
 app.use(cors());
 
 // Compression middleware
@@ -43,7 +45,7 @@ app.use('/api', apiRoutes);
 // Health check endpoint
 app.get('/health', async (req, res) => {
   const cacheService = CacheService.getInstance();
-  
+
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
