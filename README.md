@@ -10,9 +10,11 @@ APIBR2/
 ├── integrations/       # Python workers (image/audio/video generation)
 ├── frontend/           # Optional dashboard (React/Vite)
 ├── docs/               # Deep-dive guides per subsystem
-├── scripts/            # Helper scripts and PowerShell launchers
+├── scripts/            # Helper scripts and launchers
 ├── controllers/        # Legacy routing layer kept for compatibility
-└── start_*.ps1         # Windows shortcuts for local development
+├── startlinux.sh       # Linux: start all services
+├── startwin.ps1        # Windows: start all services
+└── *.ps1, *.sh         # Platform-specific startup scripts
 ```
 
 ### Core components
@@ -184,7 +186,7 @@ pwsh ./test-js.ps1             # Windows PowerShell scripts
 - **Logs**: backend uses winston JSON logs; Python server logs to STDOUT (redirect to `server.log` if needed).
 - **Health checks**: `GET /health` (Node) and `GET /health` on the Python service include CPU/RAM usage, loaded models, and applied optimizations.
 - **n8n**: configure `N8N_BASE_URL`, `N8N_API_KEY`, and `N8N_WEBHOOK_URL` to trigger automation workflows directly from controllers.
-- **PowerShell helpers**: `start_apibr2.ps1`, `start_frontend.ps1`, and `start_instagram.ps1` speed up local demos.
+- **Startup scripts**: `startlinux.sh` / `startwin.ps1` (all services), `backend.ps1`, `frontend.ps1`, and `instagram.ps1` (individual services).
 
 ## Additional Documentation
 - `docs/_ai/README.md` – AI/ML documentation index (image generation, GPU setup, models)

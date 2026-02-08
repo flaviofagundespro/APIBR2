@@ -5,45 +5,37 @@
 ### 🎯 Script Principal - Iniciar Tudo
 ```bash
 # Windows PowerShell
-./start_apibr2.ps1
+./startwin.ps1
 
-# Linux/Mac
-./start_apibr2.sh
+# Linux/macOS
+./startlinux.sh
+./system.sh         # alternative startup
 ```
 
-### 🔧 Scripts Individuais
+### 🔧 Scripts Individuais (Windows)
 
-#### 1. Iniciar Backend Node.js
+#### 1. Backend Node.js
+```powershell
+./backend.ps1
+```
+
+#### 2. Frontend React/Vite
+```powershell
+./frontend.ps1
+```
+
+#### 3. Instagram/Video Downloader
+```powershell
+./instagram.ps1
+```
+
+### 🛑 Parar Serviços
 ```bash
 # Windows
-./start_backend.bat
+./stopwin.ps1
 
-# PowerShell
-./start_backend.ps1
-
-# Linux/Mac
-./start_backend.sh
-```
-
-#### 2. Iniciar Servidor Python
-```bash
-# Windows
-./start_python.bat
-
-# PowerShell
-./start_python.ps1
-
-# Linux/Mac
-./start_python.sh
-```
-
-#### 3. Teste Completo
-```bash
-# PowerShell
-./test_ultra.ps1
-
-# Linux/Mac
-./test_ultra.sh
+# Linux/macOS
+./stoplinux.sh
 ```
 
 ## 🛠️ Criando os Scripts

@@ -39,4 +39,4 @@ Write-Host ""
 Write-Host "Limpeza concluída!" -ForegroundColor Green
 Write-Host ""
 Write-Host "Para reiniciar o sistema:" -ForegroundColor Cyan
-Write-Host "  ./start_apibr2.ps1" -ForegroundColor White 
+Write-Host "  ./startwin.ps1" -ForegroundColor White 

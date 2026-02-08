@@ -17,8 +17,8 @@
 6. **docs/_ai/api/IMAGE_API.md** - Complete reference for the Image Generation API.
 
 ### 🚀 Automation Scripts
-1. **start_apibr2.ps1** - One-click startup for the entire stack.
-2. **stop_apibr2.ps1** - Clean shutdown script for all services.
+1. **startwin.ps1** / **startlinux.sh** - One-click startup for the entire stack.
+2. **stopwin.ps1** / **stoplinux.sh** - Clean shutdown script for all services.
 3. **scripts/utils/check_status.ps1** - System health monitor.
 
 ---
@@ -64,22 +64,24 @@
 ## 🚀 How to Run
 
 ### Quick Start
-```powershell
+```bash
 # 1. Install dependencies
 cd backend; npm install
 cd ../integrations; pip install -r requirements.txt
 
 # 2. Start System
-./start_apibr2.ps1
+./startwin.ps1    # Windows
+./startlinux.sh   # Linux/macOS
 ```
 
 ### Maintenance
-```powershell
+```bash
 # Check status
 ./scripts/utils/check_status.ps1
 
 # Stop all services (Kills processes on ports 3000, 5001, 5002)
-./stop_apibr2.ps1
+./stopwin.ps1     # Windows
+./stoplinux.sh    # Linux/macOS
 ```
 
 ---

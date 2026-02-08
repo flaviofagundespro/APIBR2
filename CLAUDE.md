@@ -50,16 +50,16 @@ python instagram_server.py          # video downloader (port 5002, FastAPI)
 ### Full Stack
 ```bash
 # Linux/macOS (current platform)
-./start_all.sh       # launches all services
-./start_system.sh    # alternative startup
-./stop_apibr2.sh     # graceful shutdown
+./startlinux.sh      # launches all services
+./system.sh          # alternative startup
+./stoplinux.sh       # graceful shutdown
 
 # Windows (PowerShell)
-.\start_all.ps1      # launches all services in separate windows
-.\start_apibr2.ps1   # backend only
-.\start_frontend.ps1 # frontend only
-.\start_instagram.ps1 # video downloader only
-.\stop_apibr2.ps1    # graceful shutdown
+.\startwin.ps1       # launches all services in separate windows
+.\backend.ps1        # backend only
+.\frontend.ps1       # frontend only
+.\instagram.ps1      # video downloader only
+.\stopwin.ps1        # graceful shutdown
 
 # Test/diagnostic scripts
 ./scripts/utils/test_img2img.sh    # test image-to-image generation

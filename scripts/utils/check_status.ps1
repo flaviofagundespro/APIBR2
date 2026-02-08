@@ -25,7 +25,7 @@ try {
 
 Write-Host ""
 Write-Host "Para iniciar os serviços:" -ForegroundColor Cyan
-Write-Host "  ./start_apibr2.ps1" -ForegroundColor White
+Write-Host "  ./startwin.ps1" -ForegroundColor White
 Write-Host ""
 Write-Host "Para executar testes:" -ForegroundColor Cyan
 Write-Host "  cd integrations && ./test_ultra.ps1" -ForegroundColor White 
