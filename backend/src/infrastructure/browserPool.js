@@ -27,13 +27,15 @@ class BrowserPool {
         const browser = await puppeteer.launch({
           headless: config.browserPool.headless ? "new" : false,
           args: [
+            // Critical flags for Linux/Container environments
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
+            '--disable-gpu',
+            // Additional optimizations
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
             '--no-zygote',
-            '--disable-gpu',
           ],
         });
 
@@ -42,9 +44,9 @@ class BrowserPool {
       }
 
       this.initialized = true;
-      logger.info('Browser pool initialized successfully', { 
+      logger.info('Browser pool initialized successfully', {
         total: this.browsers.length,
-        available: this.availableBrowsers.length 
+        available: this.availableBrowsers.length
       });
     } catch (error) {
       logger.error('Failed to initialize browser pool:', error);
@@ -63,7 +65,7 @@ class BrowserPool {
 
     const browser = this.availableBrowsers.pop();
     this.busyBrowsers.add(browser);
-    
+
     logger.debug('Browser acquired from pool', {
       available: this.availableBrowsers.length,
       busy: this.busyBrowsers.size
@@ -76,7 +78,7 @@ class BrowserPool {
     if (this.busyBrowsers.has(browser)) {
       this.busyBrowsers.delete(browser);
       this.availableBrowsers.push(browser);
-      
+
       logger.debug('Browser released to pool', {
         available: this.availableBrowsers.length,
         busy: this.busyBrowsers.size
@@ -86,10 +88,10 @@ class BrowserPool {
 
   async createPage(browser) {
     const page = await browser.newPage();
-    
+
     // Set default viewport
     await page.setViewport({ width: 1920, height: 1080 });
-    
+
     // Set user agent
     await page.setUserAgent(
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -112,7 +114,7 @@ class BrowserPool {
 
   async destroy() {
     logger.info('Destroying browser pool...');
-    
+
     for (const browser of this.browsers) {
       try {
         await browser.close();
@@ -125,7 +127,7 @@ class BrowserPool {
     this.availableBrowsers = [];
     this.busyBrowsers.clear();
     this.initialized = false;
-    
+
     logger.info('Browser pool destroyed');
   }
 
