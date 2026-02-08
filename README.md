@@ -187,10 +187,12 @@ pwsh ./test-js.ps1             # Windows PowerShell scripts
 - **PowerShell helpers**: `start_apibr2.ps1`, `start_frontend.ps1`, and `start_instagram.ps1` speed up local demos.
 
 ## Additional Documentation
-- `docs/IMAGE_API.md` – exhaustive parameter list for the Python image API.
-- `docs/guides/INSTALACAO_PYTHON.md` – Windows-specific Python environment guide.
-- `docs/guides/STARTUP_SCRIPTS.md` – explanation of the PowerShell helpers.
-- `integrations/PROBLEMA_GERACAO_IMAGEM.md` – troubleshooting DirectML bottlenecks.
+- `docs/_ai/README.md` – AI/ML documentation index (image generation, GPU setup, models)
+- `docs/_ai/api/IMAGE_API.md` – exhaustive parameter list for the Python image API
+- `docs/_ai/gpu/AMD_SETUP.md` – AMD GPU configuration (ROCm, DirectML)
+- `docs/_ai/troubleshooting/IMAGE_GENERATION_PT.md` – troubleshooting image generation issues
+- `docs/guides/INSTALACAO_PYTHON.md` – Windows-specific Python environment guide
+- `docs/guides/STARTUP_SCRIPTS.md` – explanation of the PowerShell helpers
 
 ## Contributing
 1. Fork the repository and create a feature branch.

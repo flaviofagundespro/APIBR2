@@ -75,6 +75,53 @@ docker-compose --profile dev up -d apibr-dev      # development
 docker-compose --profile monitoring up -d          # with Prometheus + Grafana
 ```
 
+
+## 📁 Project Organization & AI File Policy (MANDATORY)
+
+The project root directory is considered a **human-facing, stable surface**.
+It must remain clean, minimal, and intentional.
+
+### 🛑 Root directory rules
+The AI MUST NOT create planning, reasoning, or decision-related files in the project root.
+
+Forbidden in root:
+- Planning or reorganization documents
+- Decision logs or reasoning notes
+- Temporary analysis or review files
+- Reference or TODO lists not meant for end users
+
+Examples of forbidden filenames in root:
+- *REORGANIZATION*.md
+- *PLAN*.md
+- *DECISION*.md
+- *THOUGHTS*.md
+- REFERENCES_*.md
+- *_REVIEW*.md
+
+### ✅ Mandatory location for AI-generated artifacts
+All AI-generated meta documents (plans, thoughts, decisions, reviews, drafts)
+MUST be stored under:
+
+/docs/_ai/
+
+Recommended structure:
+- /docs/_ai/plans/
+- /docs/_ai/decisions/
+- /docs/_ai/reviews/
+- /docs/_ai/tmp/
+
+If a suitable folder does not exist, the AI MUST create it under `/docs/_ai/`.
+
+### 📌 File lifecycle policy
+- Temporary thinking → `/docs/_ai/tmp/`
+- Execution plans → `/docs/_ai/plans/`
+- Final architectural decisions → `/docs/architecture/` or `/docs/adr/` (if applicable)
+- Anything under `/docs/_ai/` is considered **safe to delete**
+
+### 🧠 Enforcement rule
+If an instruction conflicts with this policy, this section takes precedence.
+
+
 ## Architecture
 
 ### Request Flow
@@ -106,6 +153,7 @@ All `/api/*` routes use API key authentication via `src/middlewares/apiKeyAuth.j
 - Env vars: `FORCE_CPU`, `PREFER_CPU`, `HUGGINGFACE_HUB_TOKEN` (for gated models)
 - Supports models: Stable Diffusion v1.5, SDXL Turbo, DreamShaper, OpenJourney, Anything-v3
 - Endpoints: `/generate`, `/edit`, `/benchmark`, `/models`, `/health`
+- **Documentation**: See `docs/_ai/README.md` for API docs, GPU setup guides, and troubleshooting
 
 ### Python Video Downloader (`integrations/instagram_server.py`)
 - FastAPI-based universal downloader using yt-dlp

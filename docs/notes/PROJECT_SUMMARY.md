@@ -13,7 +13,8 @@
 2. **CURRENT_STATUS.md** - Detailed status of features and tests.
 3. **QUICK_START.md** - Guide for new users.
 4. **CHANGELOG.md** - History of changes and updates.
-5. **docs/IMAGE_API.md** - Complete reference for the Image Generation API.
+5. **docs/_ai/README.md** - AI/ML documentation index.
+6. **docs/_ai/api/IMAGE_API.md** - Complete reference for the Image Generation API.
 
 ### 🚀 Automation Scripts
 1. **start_apibr2.ps1** - One-click startup for the entire stack.
