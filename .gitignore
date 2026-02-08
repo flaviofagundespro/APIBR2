@@ -93,3 +93,59 @@ backend/logs/
 *.backup
 *.bak
 *~
+
+# Dependencies
+node_modules/
+**/node_modules/
+**/.vite/
+.venv/
+venv/
+__pycache__/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+*.env.local
+*.env.production
+*.env.staging
+
+# Secrets & Credentials
+*.key
+*.pem
+credentials.json
+secrets.json
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build Output
+dist/
+build/
+coverage/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Project Specific
+integrations/generated_images/
+integrations/downloads/
+integrations/cookies/
+backend/logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Backup files that might contain secrets
+*.backup
+*.bak
+*~
