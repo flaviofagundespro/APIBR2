@@ -106,7 +106,7 @@ APIBR2/
 #### Arquivos Principais
 - `README.md` - Documentação principal
 - `STATUS_ATUAL.md` - Status do projeto
-- `QUICK_START.md` - Guia rápido
+- `docs/guides/QUICK_START.md` - Guia rápido
 - `CHANGELOG.md` - Histórico de mudanças
 
 ### 🔧 Configuração
@@ -155,7 +155,7 @@ APIBR2/
 
 #### Documentação
 - **README.md** - Visão geral
-- **QUICK_START.md** - Início rápido
+- **docs/guides/QUICK_START.md** - Início rápido
 - **STATUS_ATUAL.md** - Status detalhado
 - **/docs** - Documentação técnica
 

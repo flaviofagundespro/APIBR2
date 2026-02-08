@@ -188,8 +188,8 @@ pwsh ./test-js.ps1             # Windows PowerShell scripts
 
 ## Additional Documentation
 - `docs/IMAGE_API.md` – exhaustive parameter list for the Python image API.
-- `INSTALACAO_PYTHON.md` – Windows-specific Python environment guide.
-- `STARTUP_SCRIPTS.md` – explanation of the PowerShell helpers.
+- `docs/guides/INSTALACAO_PYTHON.md` – Windows-specific Python environment guide.
+- `docs/guides/STARTUP_SCRIPTS.md` – explanation of the PowerShell helpers.
 - `integrations/PROBLEMA_GERACAO_IMAGEM.md` – troubleshooting DirectML bottlenecks.
 
 ## Contributing
