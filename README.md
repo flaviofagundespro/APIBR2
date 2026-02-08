@@ -139,24 +139,25 @@ curl -X POST http://localhost:5001/generate \
 
 ## Results
 
-### Confirmed benchmarks (post Secure Boot tuning)
+### Confirmed benchmarks (Linux + ROCm Native) 🚀
 
-| Scenario | Steps | Time | Notes |
-|----------|-------|------|-------|
-| First generation (Ryzen 9 7900X + RX 6750 XT DirectML) | 25 | ~44 s | Includes cold-start model load |
-| Warm-up generations (same hardware) | 25 | ~18 s ⚡ | Sustained 1.32 steps/s after cache warm-up |
-| DirectML baseline (before tuning) | 25 | ~44 s | Used to be bound by Secure Boot + driver overhead |
-| DirectML optimized (current) | 25 | ~18 s | 2.4× faster than the previous DirectML baseline |
+| Scenario | Steps | Time | Speed | Notes |
+|----------|-------|------|-------|-------|
+| **Stable Diffusion 1.5** | 30 | **4.78s** | 7.06 it/s | **native ROCm 6.0** - 4x faster than Windows DirectML! |
+| **DreamShaper 8** | 30 | **6.71s** | 7.09 it/s | High quality, extremely fast generation |
+| Legacy (Windows DirectML) | 25 | ~18s | ~1.3 it/s | Old setup (for comparison) |
 
-### Cross-hardware comparison (25 steps @ 512×512)
+### Performance Leap
+Moving to Linux and using native ROCm drivers transformed the experience. The RX 6750 XT now performs comparably to high-end NVIDIA cards for this workload, jumping from ~1.3 it/s to **~7.1 it/s**.
 
-| Hardware / Device | Avg. time | Relative speed |
-|-------------------|-----------|----------------|
-| RX 6750 XT (DirectML, current build) | ~18 s | reference |
-| RTX 3060 (CUDA) | ~12 s | ~1.5× faster |
-| RTX 4070 (CUDA) | ~6 s | ~3× faster |
-| RX 6750 XT (DirectML, before fixes) | ~44 s | 0.4× (baseline) |
-| CPU Ryzen 9 7900X (no GPU) | ~45 s | matches old DirectML performance |
+### Cross-hardware comparison (Standard workloads)
+
+| Hardware / Environment | Avg. time | Status |
+|------------------------|-----------|--------|
+| **RX 6750 XT (Linux ROCm)** | **~4.8s** | **Current Production** 🟢 |
+| RTX 4070 (CUDA) | ~6s | Comparable |
+| RX 6750 XT (Win DirectML) | ~18s | Deprecated 🔴 |
+| CPU Only | ~45s | Fallback |
 
 Notes:
 - DirectML now competes with entry-level NVIDIA GPUs once Secure Boot and driver optimizations are applied.
