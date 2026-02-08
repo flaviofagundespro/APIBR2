@@ -184,7 +184,7 @@ Execute o script de teste completo:
 
 ```bash
 cd /home/flaviofagundes/Projetos/APIBR2
-./test_img2img.sh
+./scripts/utils/test_img2img.sh
 ```
 
 Testa:

@@ -62,9 +62,9 @@ python instagram_server.py          # video downloader (port 5002, FastAPI)
 .\stop_apibr2.ps1    # graceful shutdown
 
 # Test/diagnostic scripts
-./test_img2img.sh    # test image-to-image generation
-./test_seed_api.sh   # test seed consistency
-./diagnostico.sh     # system diagnostics
+./scripts/utils/test_img2img.sh    # test image-to-image generation
+./scripts/utils/test_seed_api.sh   # test seed consistency
+./scripts/utils/diagnostico.sh     # system diagnostics
 ```
 
 ### Docker
@@ -202,9 +202,9 @@ npm run test:watch         # watch mode
 npm run test:coverage      # coverage report
 
 # Manual/integration tests
-./test_img2img.sh          # test image-to-image API
-./test_seed_api.sh         # test seed consistency
-./diagnostico.sh           # system health diagnostics
+./scripts/utils/test_img2img.sh          # test image-to-image API
+./scripts/utils/test_seed_api.sh         # test seed consistency
+./scripts/utils/diagnostico.sh           # system health diagnostics
 ```
 
 ## Monitoring

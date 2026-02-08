@@ -21,8 +21,8 @@ APIBR2/
 ├── 📄 INSTALACAO_PYTHON.md         # Guia de instalação Python
 │
 ├── 🚀 start_apibr2.ps1             # Script principal (iniciar tudo)
-├── 🔍 check_status.ps1             # Verificar status dos serviços
-├── 🧹 clean_cache.ps1              # Limpar cache e arquivos temporários
+├── 🔍 scripts/utils/check_status.ps1             # Verificar status dos serviços
+├── 🧹 scripts/utils/clean_cache.ps1              # Limpar cache e arquivos temporários
 │
 ├── 📦 backend/                     # API Node.js principal
 │   ├── 📄 README.md                # Documentação do backend
@@ -114,10 +114,10 @@ cd ../integrations && pip install -r requirements.txt
 ./start_apibr2.ps1
 
 # Verificar status
-./check_status.ps1
+./scripts/utils/check_status.ps1
 
 # Limpar cache
-./clean_cache.ps1
+./scripts/utils/clean_cache.ps1
 ```
 
 ### 3. Testes

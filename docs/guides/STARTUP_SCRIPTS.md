@@ -203,14 +203,11 @@ python ultra_optimized_server.py
 
 ### Limpar Cache
 ```bash
-# Windows
-./clean_cache.bat
-
 # PowerShell
-./clean_cache.ps1
+./scripts/utils/clean_cache.ps1
 
-# Linux/Mac
-./clean_cache.sh
+# ~~Windows .bat~~ (deprecated/removed)
+# ~~Linux/Mac .sh~~ (deprecated/removed)
 ```
 
 ### Reiniciar Tudo
@@ -227,19 +224,16 @@ python ultra_optimized_server.py
 
 ### Verificar Status
 ```bash
-# Windows
-./check_status.bat
-
 # PowerShell
-./check_status.ps1
+./scripts/utils/check_status.ps1
 
-# Linux/Mac
-./check_status.sh
+# ~~Windows .bat~~ (deprecated/removed)
+# ~~Linux/Mac .sh~~ (deprecated/removed)
 ```
 
 ## 📊 Scripts de Monitoramento
 
-### check_status.ps1
+### check_status.ps1 (scripts/utils/)
 ```powershell
 Write-Host "Verificando status do APIBR2..." -ForegroundColor Green
 Write-Host ""
@@ -267,7 +261,7 @@ Write-Host "Para iniciar os serviços:" -ForegroundColor Cyan
 Write-Host "  ./start_apibr2.ps1" -ForegroundColor White
 ```
 
-### clean_cache.ps1
+### clean_cache.ps1 (scripts/utils/)
 ```powershell
 Write-Host "Limpando cache do APIBR2..." -ForegroundColor Green
 
@@ -311,10 +305,10 @@ cd ../integrations && pip install -r requirements.txt
 ### 3. Manutenção
 ```bash
 # Verificar status
-./check_status.ps1
+./scripts/utils/check_status.ps1
 
 # Limpar cache
-./clean_cache.ps1
+./scripts/utils/clean_cache.ps1
 
 # Reiniciar tudo
 ./restart_all.ps1

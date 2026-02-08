@@ -18,7 +18,7 @@
 ### 🚀 Automation Scripts
 1. **start_apibr2.ps1** - One-click startup for the entire stack.
 2. **stop_apibr2.ps1** - Clean shutdown script for all services.
-3. **check_status.ps1** - System health monitor.
+3. **scripts/utils/check_status.ps1** - System health monitor.
 
 ---
 
@@ -75,7 +75,7 @@ cd ../integrations; pip install -r requirements.txt
 ### Maintenance
 ```powershell
 # Check status
-./check_status.ps1
+./scripts/utils/check_status.ps1
 
 # Stop all services (Kills processes on ports 3000, 5001, 5002)
 ./stop_apibr2.ps1
