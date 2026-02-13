@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import { Mic, Image as ImageIcon, Video, FolderOpen, ArrowRight, Download, Copy, Trash2 } from 'lucide-react';
+import { Mic, Image as ImageIcon, Video, FolderOpen, ArrowRight, Download, Copy, Trash2, MessageSquare, Upload, RefreshCw } from 'lucide-react';
 import './index.css';
 
 function Home() {
@@ -13,6 +13,19 @@ function Home() {
             </p>
 
             <div className="nav-grid">
+                <Link to="/chat-studio" className="nav-item">
+                    <div className="glass-card">
+                        <div className="icon-wrapper" style={{ background: 'rgba(250, 204, 21, 0.15)' }}>
+                            <MessageSquare size={36} color="#facc15" />
+                        </div>
+                        <h2>Chat Brain</h2>
+                        <p>Seu assistente de IA local. Converse com Qwen, Llama e modelos especializados.</p>
+                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#fde047', fontWeight: '600' }}>
+                            Iniciar Chat <ArrowRight size={18} style={{ marginLeft: '8px' }} />
+                        </div>
+                    </div>
+                </Link>
+
                 <Link to="/audio-studio" className="nav-item">
                     <div className="glass-card">
                         <div className="icon-wrapper" style={{ background: 'rgba(59, 130, 246, 0.15)' }}>
@@ -44,7 +57,7 @@ function Home() {
                         <div className="icon-wrapper" style={{ background: 'rgba(139, 92, 246, 0.15)' }}>
                             <Video size={36} color="#8b5cf6" />
                         </div>
-                        <h2>Video Studio</h2>
+                        <h2>Downloader Universal</h2>
                         <p>Download de vídeos do TikTok (sem marca), Instagram, YouTube e mais.</p>
                         <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#a78bfa', fontWeight: '600' }}>
                             Baixar Vídeos <ArrowRight size={18} style={{ marginLeft: '8px' }} />
@@ -94,6 +107,15 @@ function ImageStudio() {
     const [sizePreset, setSizePreset] = useState('1024x1024');
     const [customSize, setCustomSize] = useState(false);
 
+    // Img2Img & Seed State
+    const [mode, setMode] = useState('txt2img'); // 'txt2img' or 'img2img'
+    const [uploadedImage, setUploadedImage] = useState(null);
+    const [previewUrl, setPreviewUrl] = useState(null);
+    const [strength, setStrength] = useState(0.75);
+    const [seed, setSeed] = useState('');
+    const [useFixedSeed, setUseFixedSeed] = useState(false);
+    const [magicPromptLoading, setMagicPromptLoading] = useState(false);
+
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState(null);
     const [error, setError] = useState(null);
@@ -113,7 +135,7 @@ function ImageStudio() {
     const fetchAvailableModels = async () => {
         try {
             // Direct connection to Python server for latest model list
-            const response = await fetch('http://localhost:5001/models');
+            const response = await fetch(`http://${window.location.hostname}:5001/models`);
             const data = await response.json();
 
             if (data.models) {
@@ -137,8 +159,46 @@ function ImageStudio() {
                 { id: 'lykon/dreamshaper-8', name: 'DreamShaper 8' },
                 { id: 'prompthero/openjourney', name: 'OpenJourney' },
                 { id: 'stabilityai/sdxl-turbo', name: 'SDXL Turbo' },
-                { id: 'black-forest-labs/FLUX.1-schnell', name: 'FLUX.1 Schnell - Requer Token' }
+                { id: 'SG161222/Realistic_Vision_V5.1_noVAE', name: 'Realistic Vision V5.1 (Ultra Realista)' },
+                { id: 'emilianJR/epiCRealism', name: 'EpicRealism (Ultra Definido)' }
             ]);
+        }
+    };
+
+    const handleImageUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            setUploadedImage(file);
+            setPreviewUrl(URL.createObjectURL(file));
+        }
+    };
+
+    const handleMagicPrompt = async () => {
+        if (!prompt.trim()) return;
+        setMagicPromptLoading(true);
+        try {
+            // Node Backend (:3000) -> Python (:5003) for Chat/LLM
+            const response = await fetch(`http://${window.location.hostname}:3000/api/v1/chat/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messages: [
+                        { role: 'system', content: 'You are an expert Stable Diffusion prompt engineer. Optimize the user prompt for better details, lighting, and style. Return ONLY the improved prompt, nothing else.' },
+                        { role: 'user', content: prompt }
+                    ],
+                    model: 'qwen2.5:3b' // Use a fast default model
+                })
+            });
+            const data = await response.json();
+            if (data.content) {
+                setPrompt(data.content.replace(/^"|"$/g, '')); // Remove quotes if any
+            }
+        } catch (err) {
+            console.error('Magic Prompt failed:', err);
+            // Fallback: just append some keywords
+            setPrompt(prev => prev + ", highly detailed, 8k, photorealistic, cinematic lighting");
+        } finally {
+            setMagicPromptLoading(false);
         }
     };
 
@@ -156,8 +216,13 @@ function ImageStudio() {
     };
 
     const handleGenerate = async () => {
-        if (!prompt.trim()) {
+        if (!prompt.trim() && mode === 'txt2img') {
             setError('Por favor, descreva a imagem que deseja criar.');
+            return;
+        }
+
+        if (mode === 'img2img' && !uploadedImage) {
+            setError('Por favor, faça upload de uma imagem para o modo img2img.');
             return;
         }
 
@@ -166,29 +231,53 @@ function ImageStudio() {
         setResult(null);
 
         try {
-            const response = await fetch('http://localhost:3000/api/v1/image/generate', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    prompt,
-                    model,
-                    steps,
-                    guidance_scale: guidanceScale,
-                    width,
-                    height,
-                    size: `${width}x${height}`
-                }),
-            });
+            let response;
+            const endpoint = mode === 'img2img' ? '/img2img' : '/generate';
+
+            if (mode === 'txt2img') {
+                response = await fetch(`http://${window.location.hostname}:3000/api/v1/image/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt,
+                        model,
+                        steps,
+                        guidance_scale: guidanceScale,
+                        width,
+                        height,
+                        size: `${width}x${height}`,
+                        seed: useFixedSeed && seed ? parseInt(seed) : undefined
+                    }),
+                });
+            } else {
+                // img2img uses FormData
+                const formData = new FormData();
+                formData.append('image', uploadedImage);
+                formData.append('prompt', prompt);
+                formData.append('model', model);
+                formData.append('steps', steps);
+                formData.append('guidance_scale', guidanceScale);
+                formData.append('strength', strength);
+                if (useFixedSeed && seed) {
+                    formData.append('seed', seed);
+                }
+
+                // Note: The Node backend needs to route this to the Python /img2img endpoint
+                // We'll use the same route structure but different endpoint in proxy
+                response = await fetch(`http://${window.location.hostname}:3000/api/v1/image/img2img`, {
+                    method: 'POST',
+                    body: formData, // Auto Content-Type for FormData
+                });
+            }
 
             const data = await response.json();
             if (!response.ok) {
                 throw new Error(data.message || data.error || 'Erro ao gerar imagem');
             }
 
-            setResult(data.data);
-            setGallery([{ ...data.data, id: Date.now() }, ...gallery]);
+            const resultData = { ...data.data, metadata: data.metadata };
+            setResult(resultData);
+            setGallery([{ ...resultData, id: Date.now() }, ...gallery]);
         } catch (err) {
             console.error(err);
             setError(err.message || 'Erro de conexão. Verifique se o backend está rodando.');
@@ -226,7 +315,80 @@ function ImageStudio() {
                 <h2>Estúdio de Imagem Avançado</h2>
                 <p>Gere imagens incríveis com controle total sobre qualidade e estilo.</p>
 
-                <div style={{ marginTop: '2rem' }}>
+                {/* Mode Toggle */}
+                <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem', marginBottom: '1.5rem', borderBottom: '1px solid #334155' }}>
+                    <button
+                        onClick={() => setMode('txt2img')}
+                        style={{
+                            padding: '0.8rem',
+                            background: 'transparent',
+                            color: mode === 'txt2img' ? '#ec4899' : '#94a3b8',
+                            border: 'none',
+                            borderBottom: mode === 'txt2img' ? '2px solid #ec4899' : 'none',
+                            cursor: 'pointer',
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        Texto para Imagem
+                    </button>
+                    <button
+                        onClick={() => setMode('img2img')}
+                        style={{
+                            padding: '0.8rem',
+                            background: 'transparent',
+                            color: mode === 'img2img' ? '#ec4899' : '#94a3b8',
+                            border: 'none',
+                            borderBottom: mode === 'img2img' ? '2px solid #ec4899' : 'none',
+                            cursor: 'pointer',
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        Imagem para Imagem
+                    </button>
+                </div>
+
+                <div style={{ marginTop: '1rem' }}>
+                    {/* Img2Img Upload Area */}
+                    {mode === 'img2img' && (
+                        <div style={{ marginBottom: '1.5rem' }}>
+                            <label style={{ display: 'block', marginBottom: '0.5rem', color: '#cbd5e1', fontWeight: 'bold' }}>
+                                Imagem de Referência
+                            </label>
+                            <div style={{
+                                border: '2px dashed #475569',
+                                borderRadius: '8px',
+                                padding: '1rem',
+                                textAlign: 'center',
+                                cursor: 'pointer',
+                                background: uploadedImage ? 'rgba(0,0,0,0.2)' : 'transparent',
+                                position: 'relative'
+                            }}>
+                                <input
+                                    type="file"
+                                    onChange={handleImageUpload}
+                                    style={{
+                                        position: 'absolute',
+                                        top: 0,
+                                        left: 0,
+                                        width: '100%',
+                                        height: '100%',
+                                        opacity: 0,
+                                        cursor: 'pointer'
+                                    }}
+                                    accept="image/*"
+                                />
+                                {previewUrl ? (
+                                    <img src={previewUrl} alt="Preview" style={{ maxHeight: '200px', maxWidth: '100%', borderRadius: '4px' }} />
+                                ) : (
+                                    <div style={{ padding: '2rem', color: '#94a3b8' }}>
+                                        <div style={{ marginBottom: '0.5rem' }}><Upload size={32} /></div>
+                                        <p>Arraste uma imagem ou clique para selecionar</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     <div style={{ marginBottom: '1.5rem' }}>
                         <label style={{ display: 'block', marginBottom: '0.5rem', color: '#cbd5e1', fontWeight: 'bold' }}>
                             Descrição da Imagem
@@ -248,24 +410,46 @@ function ImageStudio() {
                                 }}
                                 placeholder="Descreva a imagem que você quer criar. Seja específico sobre estilo, cores, composição..."
                             />
-                            <button
-                                onClick={handleCopyPrompt}
-                                style={{
-                                    background: 'rgba(100, 116, 139, 0.5)',
-                                    border: '1px solid #475569',
-                                    color: 'white',
-                                    borderRadius: '6px',
-                                    padding: '0.8rem',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    width: '50px'
-                                }}
-                                title="Copiar prompt"
-                            >
-                                <Copy size={18} />
-                            </button>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                <button
+                                    onClick={handleCopyPrompt}
+                                    style={{
+                                        background: 'rgba(100, 116, 139, 0.5)',
+                                        border: '1px solid #475569',
+                                        color: 'white',
+                                        borderRadius: '6px',
+                                        padding: '0.8rem',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        width: '50px'
+                                    }}
+                                    title="Copiar prompt"
+                                >
+                                    <Copy size={18} />
+                                </button>
+                                <button
+                                    onClick={handleMagicPrompt}
+                                    disabled={magicPromptLoading || !prompt.trim()}
+                                    style={{
+                                        background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+                                        border: 'none',
+                                        color: 'white',
+                                        borderRadius: '6px',
+                                        padding: '0.8rem',
+                                        cursor: magicPromptLoading || !prompt.trim() ? 'not-allowed' : 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        width: '50px',
+                                        opacity: magicPromptLoading ? 0.7 : 1
+                                    }}
+                                    title="Melhorar Prompt (IA)"
+                                >
+                                    {magicPromptLoading ? <RefreshCw className="spin" size={18} /> : <span>✨</span>}
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -424,6 +608,78 @@ function ImageStudio() {
                                 Controla quanto o modelo segue seu prompt (1=criativo, 20=fiel)
                             </p>
                         </div>
+
+                        {/* Img2Img Strength */}
+                        {mode === 'img2img' && (
+                            <div style={{ marginBottom: '1rem', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                    <label style={{ color: '#cbd5e1', fontSize: '0.9rem' }}>Força da Transformação (Strength)</label>
+                                    <span style={{ color: '#8b5cf6', fontWeight: 'bold' }}>{strength}</span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min="0.1"
+                                    max="1.0"
+                                    step="0.05"
+                                    value={strength}
+                                    onChange={(e) => setStrength(parseFloat(e.target.value))}
+                                    style={{ width: '100%', accentColor: '#8b5cf6', cursor: 'pointer' }}
+                                />
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem' }}>
+                                    <span>Sutil (Mantém original)</span>
+                                    <span>Criativo (Muda muito)</span>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Seed Control */}
+                        <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #334155' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem', gap: '0.5rem' }}>
+                                <input
+                                    type="checkbox"
+                                    id="useFixedSeed"
+                                    checked={useFixedSeed}
+                                    onChange={(e) => setUseFixedSeed(e.target.checked)}
+                                    style={{ accentColor: '#10b981', cursor: 'pointer' }}
+                                />
+                                <label htmlFor="useFixedSeed" style={{ color: '#cbd5e1', fontSize: '0.9rem', cursor: 'pointer' }}>
+                                    Usar Seed Fixa (para reprodutibilidade)
+                                </label>
+                            </div>
+
+                            {useFixedSeed && (
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <input
+                                        type="number"
+                                        placeholder="Digite um número de seed..."
+                                        value={seed}
+                                        onChange={(e) => setSeed(e.target.value)}
+                                        style={{
+                                            flex: 1,
+                                            padding: '0.5rem',
+                                            background: 'rgba(0,0,0,0.3)',
+                                            border: '1px solid #334155',
+                                            color: 'white',
+                                            borderRadius: '4px'
+                                        }}
+                                    />
+                                    <button
+                                        onClick={() => setSeed(Math.floor(Math.random() * 2147483647).toString())}
+                                        title="Gerar seed aleatória"
+                                        style={{
+                                            padding: '0.5rem',
+                                            background: '#334155',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '4px',
+                                            cursor: 'pointer'
+                                        }}
+                                    >
+                                        <RefreshCw size={18} />
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     <button
@@ -475,7 +731,7 @@ function ImageStudio() {
                         </div>
                         <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
                             <button
-                                onClick={() => handleDownloadImage(result.image_base64, `generated-${Date.now()}.png`)}
+                                onClick={() => handleDownloadImage(result.image_base64, `generated-${result.seed || Date.now()}.png`)}
                                 style={{
                                     padding: '0.6rem 1.2rem',
                                     background: '#10b981',
@@ -501,10 +757,11 @@ function ImageStudio() {
                                 color: '#cbd5e1',
                                 textAlign: 'left'
                             }}>
-                                <p><strong>Modelo:</strong> {result.metadata.model}</p>
-                                <p><strong>Tempo:</strong> {result.metadata.generation_time}s</p>
-                                <p><strong>Passos:</strong> {result.metadata.steps}</p>
-                                <p><strong>Guidance Scale:</strong> {result.metadata.guidance_scale}</p>
+                                <p><strong>Modelo:</strong> {result.metadata?.model || result.model}</p>
+                                <p><strong>Seed:</strong> {result.seed || result.metadata?.seed || 'N/A'}</p>
+                                <p><strong>Tempo:</strong> {result.metadata?.generation_time}s</p>
+                                <p><strong>Passos:</strong> {result.metadata?.steps}</p>
+                                <p><strong>Guidance Scale:</strong> {result.metadata?.guidance_scale}</p>
                             </div>
                         )}
                     </div>
@@ -622,7 +879,7 @@ function VideoStudio() {
                     throw new Error('Plataforma inválida');
             }
 
-            const response = await fetch(`http://localhost:3000${endpoint}`, {
+            const response = await fetch(`http://${window.location.hostname}:3000${endpoint}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -671,7 +928,7 @@ function VideoStudio() {
                 <div className="icon-wrapper" style={{ color: '#8b5cf6', background: 'rgba(139, 92, 246, 0.1)' }}>
                     <Video size={32} />
                 </div>
-                <h2>Estúdio de Vídeo Completo</h2>
+                <h2>Downloader Universal</h2>
                 <p>Baixe vídeos do Instagram, TikTok, YouTube, Facebook, Amazon, Shopee e muito mais.</p>
 
                 <div style={{
@@ -695,7 +952,7 @@ function VideoStudio() {
                 <div style={{ padding: '1.5rem', background: 'rgba(0,0,0,0.2)', borderRadius: '0 0 8px 8px' }}>
                     <div style={{ marginBottom: '1.5rem' }}>
                         <label style={{ display: 'block', marginBottom: '0.5rem', color: '#cbd5e1', fontWeight: 'bold' }}>
-                            URL do Vídeo
+                            Link do Vídeo
                         </label>
                         <input
                             type="text"
@@ -877,6 +1134,23 @@ function VideoStudio() {
                                 <strong>Tamanho:</strong> {result.size}
                             </p>
                         )}
+                        <a
+                            href={`http://${window.location.hostname}:3000/api/v1/studio/file/download/${encodeURIComponent(result.filename)}`}
+                            download
+                            style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                marginTop: '1rem',
+                                padding: '0.8rem 1.5rem',
+                                background: '#10b981',
+                                color: 'white',
+                                textDecoration: 'none',
+                                borderRadius: '6px',
+                                fontWeight: 'bold'
+                            }}
+                        >
+                            <Download size={18} style={{ marginRight: '8px' }} /> Salvar Arquivo
+                        </a>
                     </div>
                 )}
             </div>
@@ -895,7 +1169,7 @@ function Projects() {
 
     const fetchProjects = async () => {
         try {
-            const response = await fetch('http://localhost:3000/api/v1/studio/projects');
+            const response = await fetch(`http://${window.location.hostname}:3000/api/v1/studio/projects`);
             const data = await response.json();
             setProjects(data);
         } catch (err) {
@@ -906,11 +1180,11 @@ function Projects() {
     };
 
     const handleDownloadFile = (type, filename) => {
-        window.open(`http://localhost:3000/api/v1/studio/file/${type}/${encodeURIComponent(filename)}`, '_blank');
+        window.open(`http://${window.location.hostname}:3000/api/v1/studio/file/${type}/${encodeURIComponent(filename)}`, '_blank');
     };
 
     const getFileUrl = (type, filename) => {
-        return `http://localhost:3000/api/v1/studio/file/${type}/${encodeURIComponent(filename)}`;
+        return `http://${window.location.hostname}:3000/api/v1/studio/file/${type}/${encodeURIComponent(filename)}`;
     };
 
     const TabButton = ({ id, label, icon }) => (
@@ -1101,6 +1375,188 @@ function Projects() {
     );
 }
 
+function ChatStudio() {
+    const chatModels = [
+        { id: 'qwen2.5:3b', name: 'Qwen 2.5 (3B)', desc: '⚡ Padrão: Ótimo para texto, rápido e inteligente.' },
+        { id: 'gpt-oss:20b', name: 'GPT-OSS (20B)', desc: '🏆 Campeão de Testes: Mais otimizado e fluido no seu PC.' },
+        { id: 'qwen2.5:14b', name: 'Qwen 2.5 (14B)', desc: '🧠 Super Cérebro: Alternativa muito inteligente.' },
+        { id: 'codestral:22b', name: 'Codestral (22B)', desc: '💻 Mistral para Código: Excelente para programação.' },
+        { id: 'deepseek-coder:33b', name: 'DeepSeek Coder (33B)', desc: '🐳 O Monstro: Pode usar muita RAM (18GB+).' },
+        { id: 'qwen2.5:32b', name: 'Qwen 2.5 (32B)', desc: '🎓 O Gênio: Nível GPT-4 Local (20GB RAM).' },
+        { id: 'llama3.2:3b', name: 'Llama 3.2 (3B)', desc: '💬 Bom de papo: Equilibrado e amigável.' },
+    ];
+
+    const [chatModel, setChatModel] = useState('gpt-oss:20b');
+    const [messages, setMessages] = useState([
+        { role: 'assistant', content: 'Olá! Sou seu assistente de IA local. Como posso ajudar hoje?' }
+    ]);
+    const [input, setInput] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const handleSend = async () => {
+        if (!input.trim() || loading) return;
+
+        const userMsg = { role: 'user', content: input };
+        setMessages(prev => [...prev, userMsg]);
+        setInput('');
+        setLoading(true);
+
+        try {
+            // Node Backend (:3000) -> Python (:5003)
+            const response = await fetch(`http://${window.location.hostname}:3000/api/v1/chat/chat`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    messages: [...messages, userMsg].map(m => ({ role: m.role, content: m.content })),
+                    model: chatModel
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.content) {
+                setMessages(prev => [...prev, { role: 'assistant', content: data.content }]);
+            } else {
+                throw new Error(data.error || "Erro desconhecido");
+            }
+
+        } catch (err) {
+            console.error(err);
+            setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Erro ao conectar com o cérebro local. Verifique se o backend Node e o serviço Python (Porta 5003) estão rodando.' }]);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSend();
+        }
+    };
+
+    // Get current model description
+    const currentModelDesc = chatModels.find(m => m.id === chatModel)?.desc || '';
+
+    return (
+        <div className="app-container animate-fade-in" style={{ height: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <Link to="/" className="btn btn-secondary">← Voltar</Link>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <div style={{ color: '#facc15', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <MessageSquare size={20} /> Chat Brain
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                        <select
+                            value={chatModel}
+                            onChange={(e) => setChatModel(e.target.value)}
+                            style={{
+                                background: 'rgba(0,0,0,0.3)',
+                                border: '1px solid #334155',
+                                color: 'white',
+                                borderRadius: '4px',
+                                padding: '0.2rem 0.5rem',
+                                fontSize: '0.9rem',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            {chatModels.map(m => (
+                                <option key={m.id} value={m.id}>{m.name}</option>
+                            ))}
+                        </select>
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '2px' }}>
+                            {currentModelDesc}
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div style={{
+                flex: 1,
+                overflowY: 'auto',
+                background: 'rgba(0,0,0,0.2)',
+                borderRadius: '8px',
+                padding: '1rem',
+                border: '1px solid #334155',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1rem'
+            }}>
+                {messages.map((msg, idx) => (
+                    <div key={idx} style={{
+                        display: 'flex',
+                        justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                    }}>
+                        <div style={{
+                            maxWidth: '80%',
+                            padding: '1rem',
+                            borderRadius: '12px',
+                            background: msg.role === 'user' ? '#3b82f6' : '#1e293b',
+                            color: 'white',
+                            borderTopRightRadius: msg.role === 'user' ? '2px' : '12px',
+                            borderTopLeftRadius: msg.role === 'user' ? '12px' : '2px',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                        }}>
+                            {msg.role === 'assistant' && (
+                                <div style={{ fontSize: '0.75rem', color: '#cbd5e1', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                                    🤖 AI ({chatModel})
+                                </div>
+                            )}
+                            <div style={{ lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>{msg.content}</div>
+                        </div>
+                    </div>
+                ))}
+                {loading && (
+                    <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                        <div style={{
+                            padding: '1rem',
+                            borderRadius: '12px',
+                            background: '#1e293b',
+                            color: '#94a3b8'
+                        }}>
+                            Thinking...
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+                <input
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Digite sua mensagem..."
+                    style={{
+                        flex: 1,
+                        padding: '1rem',
+                        borderRadius: '6px',
+                        border: '1px solid #334155',
+                        background: '#1e293b',
+                        color: 'white',
+                        fontSize: '1rem'
+                    }}
+                />
+                <button
+                    onClick={handleSend}
+                    disabled={loading || !input.trim()}
+                    className="btn"
+                    style={{
+                        background: '#facc15',
+                        color: 'black',
+                        fontWeight: 'bold',
+                        opacity: loading || !input.trim() ? 0.5 : 1
+                    }}
+                >
+                    Enviar
+                </button>
+            </div>
+        </div>
+    );
+}
+
+
 function App() {
     return (
         <Router>
@@ -1109,6 +1565,7 @@ function App() {
                 <Route path="/audio-studio" element={<AudioStudio />} />
                 <Route path="/image-studio" element={<ImageStudio />} />
                 <Route path="/video-studio" element={<VideoStudio />} />
+                <Route path="/chat-studio" element={<ChatStudio />} />
                 <Route path="/projects" element={<Projects />} />
             </Routes>
         </Router>
