@@ -1,101 +1,5 @@
 # Dependencies
 node_modules/
-.venv/
-venv/
-__pycache__/
-
-# Environment Variables
-.env
-.env.*
-!.env.example
-
-# Logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Build Output
-dist/
-build/
-coverage/
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-
-# Claude Code
-.claude/
-
-# Project Specific
-integrations/generated_images/
-integrations/downloads/
-integrations/cookies/
-backend/logs/
-
-# Temporary files
-*.tmp
-*.temp
-# Dependencies
-node_modules/
-.venv/
-venv/
-__pycache__/
-
-# Environment Variables
-.env
-.env.*
-!.env.example
-*.env.local
-*.env.production
-*.env.staging
-
-# Secrets & Credentials
-*.key
-*.pem
-credentials.json
-secrets.json
-
-# Logs
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Build Output
-dist/
-build/
-coverage/
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-
-# Project Specific
-integrations/generated_images/
-integrations/downloads/
-integrations/cookies/
-backend/logs/
-
-# Temporary files
-*.tmp
-*.temp
-
-# Backup files that might contain secrets
-*.backup
-*.bak
-*~
-
-# Dependencies
-node_modules/
 **/node_modules/
 **/.vite/
 .venv/
@@ -135,17 +39,22 @@ coverage/
 *.swo
 .DS_Store
 
+# Claude Code
+.claude/
+
 # Project Specific
 integrations/generated_images/
 integrations/downloads/
 integrations/cookies/
 backend/logs/
 
-# Temporary files
+# Temporary & Backup files
 *.tmp
 *.temp
-
-# Backup files that might contain secrets
 *.backup
 *.bak
 *~
+
+# Artifacts
+APIBR-project.tar.gz
+dump.rdb
