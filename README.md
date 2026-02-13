@@ -6,7 +6,7 @@ APIBR2 is a production-grade automation stack that blends high-volume web scrapi
 
 ```
 APIBR2/
-├── backend/            # Node.js REST API, queueing, scraping engines
+├── backend/            # Node.js REST API, queueing, scraping engines, AIOS gateway
 ├── integrations/       # Python workers (image/audio/video generation)
 ├── frontend/           # Optional dashboard (React/Vite)
 ├── docs/               # Deep-dive guides per subsystem
@@ -35,7 +35,7 @@ APIBR2/
 ### Backend (Node.js)
 ```bash
 cd APIBR2/backend
-cp ../env.example .env        # or set environment variables manually
+cp .env.example .env          # or set environment variables manually
 npm install
 npm run dev                   # watches src/ for changes
 # npm start                   # production-style start
@@ -92,8 +92,51 @@ npm run dev   # serves dashboard on http://localhost:5173
 | YouTube ingestion | `POST /api/youtube/scrape`, `/video`, `/ocr` | OCR support auto-disables when Tesseract is missing |
 | Media studio | `/api/v1/{audio,image,video,studio}` | Proxies to Python services or triggers n8n |
 | Image AI | `POST /api/v1/image/generate` (Node) → `POST /generate` (Python) | Stable Diffusion v1.5, SDXL Turbo, DreamShaper, OpenJourney, Anything-v3 |
+| AIOS agents | `POST /api/aios/agent` | WhatsApp-to-AI gateway (fire-and-forget, 202) |
 
 Authentication: every `/api/*` route expects an `x-api-key` header that matches one of the comma-separated values defined in `API_KEYS`.
+
+## AIOS WhatsApp Gateway
+
+The AIOS gateway (`POST /api/aios/agent`) bridges WhatsApp messages (via Evolution API) to Claude-powered AIOS agents. Requests return immediately with HTTP 202 while the agent runs asynchronously.
+
+### Available agents
+
+| Agent | Trigger keyword | Capability |
+|-------|----------------|------------|
+| `dev` | `@dev` | Code generation, bug fixes, refactoring |
+| `qa` | `@qa` | Test plans, quality reviews |
+| `architect` | `@architect` | System design, architecture decisions |
+| `pm` | `@pm` | Project management, prioritization |
+| `analyst` | `@analyst` | Data analysis, requirements elicitation |
+
+### Routing logic
+- Messages prefixed with `@agent-name` are routed to that specific agent.
+- Messages without a prefix are routed to `aios-master` for orchestration.
+- Responses are sent back to the originating WhatsApp number via Evolution API.
+
+### Example
+```bash
+curl -X POST http://localhost:3000/api/aios/agent \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: dev-key-1" \
+  -d '{
+        "message": "@dev create a Node.js function to validate Brazilian CPF",
+        "phone": "5527999999999",
+        "instanceName": "my-instance"
+      }'
+# → 202 Accepted (agent runs in background, reply sent to WhatsApp)
+```
+
+### Required environment variables
+```
+ANTHROPIC_API_KEY=          # Claude API key
+CLAUDE_CLI_PATH=            # Path to the claude CLI binary
+AIOS_PROJECT_PATH=          # Absolute path to your AIOS project root
+EVOLUTION_API_BASE_URL=     # Evolution API base URL
+EVOLUTION_API_KEY=          # Evolution API key
+EVOLUTION_INSTANCE=         # Default WhatsApp instance name
+```
 
 ## Examples
 

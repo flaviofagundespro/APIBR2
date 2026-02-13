@@ -18,9 +18,10 @@
     "nodejs",
     "express"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "Flavio Fagundes",
+  "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
     "axios": "^1.10.0",
     "compression": "^1.7.4",
     "cors": "^2.8.5",

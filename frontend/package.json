@@ -2,6 +2,9 @@
     "name": "apibr2-frontend",
     "private": true,
     "version": "0.0.0",
+    "description": "APIBR2 dashboard — React/Vite frontend",
+    "author": "Flavio Fagundes",
+    "license": "MIT",
     "type": "module",
     "scripts": {
         "dev": "vite",
