@@ -119,8 +119,15 @@ export const getFile = async (req, res, next) => {
     }
 
     if (fs.existsSync(filepath)) {
-      logger.info(`Serving file: ${filepath}`);
-      res.sendFile(filepath);
+      logger.info(`Serving file (download): ${filepath}`);
+      res.download(filepath, filename || path.basename(filepath), (err) => {
+        if (err) {
+          logger.error('Error sending file:', err);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Error downloading file' });
+          }
+        }
+      });
     } else {
       logger.warning(`File not found: ${filepath}`);
       res.status(404).json({ error: 'File not found' });
