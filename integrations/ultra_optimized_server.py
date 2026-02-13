@@ -19,6 +19,10 @@ import logging
 import gc
 from datetime import datetime
 import psutil  # Used to monitor real-time resource usage
+from typing import Optional, List
+from fastapi import File, UploadFile, Form
+from PIL import Image
+import io
 
 # Force PyTorch to use every CPU core (Ryzen 9 7900X = 12c/24t on the target host)
 num_threads = os.cpu_count() or 12  # Fallback to 12 threads if detection fails
@@ -65,6 +69,7 @@ PREFER_CPU = os.getenv("PREFER_CPU", "false").lower() == "true"
 
 # Cache to avoid reloading heavy pipelines on every request
 pipes = {}
+img2img_pipes = {}
 
 class ImageRequest(BaseModel):
     """Simple request schema so FastAPI can validate payloads."""
@@ -76,6 +81,7 @@ class ImageRequest(BaseModel):
     height: int = 512
     size: str = "512x512"
     scheduler: str = "auto"  # auto, dpm++, euler_a, ddim
+    seed: Optional[int] = None
     
     def __init__(self, **data):
         super().__init__(**data)
@@ -216,6 +222,20 @@ def get_model_config(model_name, device="cpu"):
             'size': '512x512',
             'scheduler': scheduler,
             'memory_efficient': True
+        },
+        'SG161222/Realistic_Vision_V5.1_noVAE': {
+            'steps': 25,
+            'guidance_scale': 5.0,
+            'size': '512x768', # Portrait works better for realistic
+            'scheduler': 'dpm++',
+            'memory_efficient': True
+        },
+        'emilianJR/epiCRealism': {
+            'steps': 20,
+            'guidance_scale': 5.0,
+            'size': '512x768',
+            'scheduler': 'dpm++',
+            'memory_efficient': True
         }
     }
     return configs.get(model_name, configs['runwayml/stable-diffusion-v1-5'])
@@ -230,7 +250,8 @@ def get_pipe(model_name):
         'dreamshaper': 'lykon/dreamshaper-8',
         'openjourney': 'prompthero/openjourney',
         'anything-v3': 'Linaqruf/anything-v3.0',
-        'FLUX.1-dev': 'black-forest-labs/FLUX.1-schnell'
+        'realistic-vision': 'SG161222/Realistic_Vision_V5.1_noVAE',
+        'epic-realism': 'emilianJR/epiCRealism'
     }
     
     full_model_name = model_mapping.get(model_name, model_name)
@@ -240,32 +261,6 @@ def get_pipe(model_name):
         try:
             device = detect_device()
             
-            # --- 1. FLUX Handling (Specific Logic) ---
-            if "flux" in full_model_name.lower():
-                from diffusers import FluxPipeline
-                logger.info("Flux model detected. Using FluxPipeline with bfloat16.")
-                
-                if device == "dml":
-                    logger.warning("⚠️ FLUX on DirectML (Windows) might be extremely slow or fail. Expect issues.")
-                
-                # Flux requires bfloat16 for best results/compatibility
-                pipes[full_model_name] = FluxPipeline.from_pretrained(
-                    full_model_name,
-                    torch_dtype=torch.bfloat16,
-                    token=os.getenv("HUGGINGFACE_HUB_TOKEN")
-                )
-                
-                # Flux is VRAM hungry; force offload to system RAM even on GPU
-                # This ensures it fits in 12GB VRAM cards alongside Windows overhead
-                try:
-                    pipes[full_model_name].enable_model_cpu_offload()
-                    logger.info("Enabled CPU offload for Flux.")
-                except Exception as e:
-                    logger.warning(f"Could not enable CPU offload for Flux: {e}")
-                    
-                # Return immediately as Flux doesn't use the standard schedulers/optimizations below
-                return pipes[full_model_name]
-
             # --- 2. Standard SD/SDXL Handling ---
             if device == "dml":
                 torch_dtype = torch.float32
@@ -356,6 +351,72 @@ def get_pipe(model_name):
             raise HTTPException(status_code=500, detail=f"Error loading model: {str(e)}")
     
     return pipes[full_model_name]
+
+def get_img2img_pipe(model_name):
+    """Lazy-load and memoize a Stable Diffusion Img2Img pipeline."""
+    
+    model_mapping = {
+        'stable-diffusion-1.5': 'runwayml/stable-diffusion-v1-5',
+        'sd-1.5': 'runwayml/stable-diffusion-v1-5',
+        'sdxl-turbo': 'stabilityai/sdxl-turbo',
+        'dreamshaper': 'lykon/dreamshaper-8',
+        'openjourney': 'prompthero/openjourney',
+        'anything-v3': 'Linaqruf/anything-v3.0',
+        'realistic-vision': 'SG161222/Realistic_Vision_V5.1_noVAE',
+        'epic-realism': 'emilianJR/epiCRealism'
+    }
+    
+    full_model_name = model_mapping.get(model_name, model_name)
+    
+    if full_model_name not in img2img_pipes:
+        logger.info(f"Loading Img2Img model: {full_model_name}")
+        try:
+            device = detect_device()
+            
+            if device == "dml":
+                torch_dtype = torch.float32
+            elif device == "cuda":
+                torch_dtype = torch.float16
+            else:
+                torch_dtype = torch.float32
+            
+            from diffusers import StableDiffusionImg2ImgPipeline
+            
+            img2img_pipes[full_model_name] = StableDiffusionImg2ImgPipeline.from_pretrained(
+                full_model_name, 
+                torch_dtype=torch_dtype,
+                safety_checker=None,
+                requires_safety_checker=False,
+                token=os.getenv("HUGGINGFACE_HUB_TOKEN")
+            )
+            
+            if device == "dml":
+                 try:
+                    import torch_directml
+                    dml_device = torch_directml.device()
+                    img2img_pipes[full_model_name] = img2img_pipes[full_model_name].to(dml_device)
+                 except:
+                    img2img_pipes[full_model_name] = img2img_pipes[full_model_name].to("cpu")
+            elif device == "cuda":
+                img2img_pipes[full_model_name] = img2img_pipes[full_model_name].to("cuda")
+                img2img_pipes[full_model_name].enable_xformers_memory_efficient_attention()
+            else:
+                img2img_pipes[full_model_name] = img2img_pipes[full_model_name].to("cpu")
+                img2img_pipes[full_model_name].enable_model_cpu_offload()
+
+            # Apply Scheduler
+            model_config = get_model_config(full_model_name, device)
+            img2img_pipes[full_model_name] = get_scheduler(
+                img2img_pipes[full_model_name], 
+                model_config['scheduler'],
+                device
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Error loading Img2Img model {full_model_name}: {e}")
+            raise HTTPException(status_code=500, detail=f"Error loading model: {str(e)}")
+            
+    return img2img_pipes[full_model_name]
 
 @app.get("/health")
 def health_check():
@@ -455,6 +516,15 @@ def generate_image(req: ImageRequest):
             estimated_time = req.steps * 0.5  # CUDA stacks can hit ~0.5s per step
             logger.info(f"⏱️ GPU: Estimated time ~{estimated_time}s")
         
+        generator = None
+        if req.seed is not None:
+             logger.info(f"🌱 Using seed: {req.seed}")
+             generator = torch.Generator(device=current_device).manual_seed(req.seed)
+        else:
+             req.seed = torch.randint(0, 2**32 - 1, (1,)).item()
+             generator = torch.Generator(device=current_device).manual_seed(req.seed)
+             logger.info(f"🎲 Random seed: {req.seed}")
+        
         try:
             guidance = req.guidance_scale
             if "turbo" in req.model.lower():
@@ -465,7 +535,8 @@ def generate_image(req: ImageRequest):
                 num_inference_steps=req.steps,
                 guidance_scale=guidance,
                 height=req.height,
-                width=req.width
+                width=req.width,
+                generator=generator
             )
             
         except Exception as gen_error:
@@ -555,6 +626,7 @@ def generate_image(req: ImageRequest):
                 "prompt": req.prompt,
                 "model": req.model,
                 "size": f"{req.width}x{req.height}",
+                "seed": req.seed,
                 "timestamp": datetime.now().isoformat()
             },
             "metadata": {
@@ -562,6 +634,7 @@ def generate_image(req: ImageRequest):
                 "generation_time": round(generation_time, 2),
                 "steps": req.steps,
                 "guidance_scale": req.guidance_scale,
+                "seed": req.seed,
                 "scheduler": req.scheduler,
                 "device": current_device,
                 "optimization_level": "ultra_v2",
@@ -575,6 +648,88 @@ def generate_image(req: ImageRequest):
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/img2img")
+async def image_to_image(
+    image: UploadFile = File(...),
+    prompt: str = Form(...),
+    model: str = Form("runwayml/stable-diffusion-v1-5"),
+    steps: int = Form(15),
+    guidance_scale: float = Form(7.5),
+    strength: float = Form(0.75),
+    seed: Optional[int] = Form(None)
+):
+    """Image-to-Image generation endpoint."""
+    try:
+        logger.info(f"🎨 Img2Img: {prompt[:50]}... | Model: {model} | Strength: {strength}")
+        
+        # Read and process image
+        contents = await image.read()
+        init_image = Image.open(io.BytesIO(contents)).convert("RGB")
+        init_image = init_image.resize((512, 512)) # Standardize size for now
+        
+        start_time = time.time()
+        current_device = detect_device()
+        
+        pipe = get_img2img_pipe(model)
+        
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            
+        generator = None
+        if seed is not None:
+             logger.info(f"🌱 Using seed: {seed}")
+             generator = torch.Generator(device=current_device).manual_seed(seed)
+        else:
+             seed = torch.randint(0, 2**32 - 1, (1,)).item()
+             generator = torch.Generator(device=current_device).manual_seed(seed)
+        
+        result = pipe(
+            prompt=prompt,
+            image=init_image,
+            strength=strength,
+            num_inference_steps=steps,
+            guidance_scale=guidance_scale,
+            generator=generator
+        )
+        
+        out_image = result.images[0]
+        generation_time = time.time() - start_time
+        
+        timestamp = int(time.time())
+        model_short = model.split('/')[-1] if '/' in model else model
+        filename = f"img2img_{model_short}_{timestamp}_{uuid.uuid4().hex[:8]}.png"
+        filepath = OUT_DIR / filename
+        out_image.save(filepath)
+        
+        with open(filepath, "rb") as image_file:
+            image_base64 = base64.b64encode(image_file.read()).decode('utf-8')
+            
+        return {
+            "success": True,
+            "data": {
+                "image_base64": image_base64,
+                "image_url": f"http://apibr.giesel.com.br/images/{filename}",
+                "local_path": str(filepath),
+                "prompt": prompt,
+                "model": model,
+                "size": "512x512",
+                "timestamp": datetime.now().isoformat()
+            },
+            "metadata": {
+                "model": model,
+                "generation_time": round(generation_time, 2),
+                "steps": steps,
+                "strength": strength,
+                "seed": seed,
+                "device": current_device
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Img2Img Error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/models")
@@ -633,13 +788,22 @@ def list_models():
                 "recommended_size": "512x512",
                 "performance_512x512": perf_512
             },
-            "Linaqruf/anything-v3.0": {
-                "name": "Anything V3",
-                "alias": ["anything-v3"],
-                "description": "Anime/Manga style",
-                "recommended_steps": 15,
+            "SG161222/Realistic_Vision_V5.1_noVAE": {
+                "name": "Realistic Vision V5.1 (Ultra Realista)",
+                "alias": ["realistic-vision"],
+                "description": "Fotorrealismo extremo, estável e seguro",
+                "recommended_steps": 25,
                 "recommended_scheduler": "dpm++",
-                "recommended_size": "512x512",
+                "recommended_size": "512x768",
+                "performance_512x512": perf_512
+            },
+            "emilianJR/epiCRealism": {
+                "name": "EpicRealism (Ultra Definido)",
+                "alias": ["epic-realism"],
+                "description": "Alta definição e detalhes nítidos",
+                "recommended_steps": 20,
+                "recommended_scheduler": "dpm++",
+                "recommended_size": "512x768",
                 "performance_512x512": perf_512
             }
         },

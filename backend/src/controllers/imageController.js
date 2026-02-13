@@ -1,6 +1,7 @@
 import { logger } from "../config/logger.js";
 import { config } from "../config/index.js";
 import axios from 'axios';
+import FormData from 'form-data';
 
 // Python inference server endpoint (can be overridden via env var)
 const PYTHON_SERVER_URL = process.env.PYTHON_SERVER_URL || config.pythonServerUrl || 'http://localhost:5001';
@@ -49,7 +50,11 @@ export const generateImage = async (req, res, next) => {
       'anything-v3': 'Anything V3 (short name)',
 
       // Fallback alias
-      'FLUX.1-dev': 'Flux model (fallback)'
+
+      'SG161222/Realistic_Vision_V5.1_noVAE': 'Realistic Vision V5.1 (Ultra Realista)',
+      'emilianJR/epiCRealism': 'EpicRealism (Ultra Definido)',
+      'realistic-vision': 'Realistic Vision (short name)',
+      'epic-realism': 'EpicRealism (short name)'
     };
 
     if (!supportedModels[model]) {
@@ -88,7 +93,8 @@ export const generateImage = async (req, res, next) => {
         scheduler: req.body.scheduler || 'dpm++',
         device: req.body.device || 'auto',
         width: width,
-        height: height
+        height: height,
+        seed: req.body.seed ? parseInt(req.body.seed) : undefined
       }, {
         timeout: 600000, // 10 minutes (DirectML can be slow)
         headers: {
@@ -153,7 +159,11 @@ export const getModels = async (req, res, next) => {
       'anything-v3': 'Anything V3 (short name)',
 
       // Fallback alias
-      'FLUX.1-dev': 'Flux model (fallback)'
+
+      'SG161222/Realistic_Vision_V5.1_noVAE': 'Realistic Vision V5.1 (Ultra Realista)',
+      'emilianJR/epiCRealism': 'EpicRealism (Ultra Definido)',
+      'realistic-vision': 'Realistic Vision (short name)',
+      'epic-realism': 'EpicRealism (short name)'
     };
 
     res.status(200).json({ models: supportedModels });
@@ -276,6 +286,80 @@ export const upscaleImage = async (req, res, next) => {
 
   } catch (error) {
     logger.error("Error upscaling image:", error);
+    next(error);
+  }
+};
+
+export const img2imgGenerate = async (req, res, next) => {
+  try {
+    const { prompt, model, steps, guidance_scale, strength, seed } = req.body;
+    const imageFile = req.file;
+
+    logger.info('Img2Img generation request', { prompt, model, strength });
+
+    if (!imageFile) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'Image file is required'
+      });
+    }
+
+    if (!prompt) {
+      return res.status(400).json({
+        error: 'Validation Error',
+        message: 'Prompt is required'
+      });
+    }
+
+    // Prepare FormData for Python server
+    const formData = new FormData();
+    formData.append('image', imageFile.buffer, {
+      filename: imageFile.originalname,
+      contentType: imageFile.mimetype
+    });
+    formData.append('prompt', prompt || "");
+    formData.append('model', model || "runwayml/stable-diffusion-v1-5");
+    formData.append('steps', steps || 15);
+    formData.append('guidance_scale', guidance_scale || 7.5);
+    formData.append('strength', strength || 0.75);
+
+    if (seed) {
+      formData.append('seed', seed);
+    }
+
+    // Forward request to Python server
+    try {
+      logger.info(`Calling Python img2img server at ${PYTHON_SERVER_URL}...`);
+
+      const pythonResponse = await axios.post(`${PYTHON_SERVER_URL}/img2img`, formData, {
+        headers: {
+          ...formData.getHeaders()
+        },
+        timeout: 600000 // 10 minutes
+      });
+
+      logger.info('Python server response received');
+
+      res.status(200).json(pythonResponse.data);
+
+    } catch (pythonError) {
+      logger.error('Python server error:', pythonError.message);
+
+      if (pythonError.code === 'ECONNREFUSED') {
+        return res.status(503).json({
+          error: 'Service Unavailable',
+          message: 'Image generation service is not available.'
+        });
+      }
+
+      return res.status(500).json({
+        error: 'Img2Img Generation Error',
+        message: pythonError.response?.data?.detail || pythonError.message
+      });
+    }
+
+  } catch (error) {
+    logger.error("Error in img2img:", error);
     next(error);
   }
 };
