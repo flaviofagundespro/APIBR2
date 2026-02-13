@@ -9,12 +9,16 @@ import { audioRoutes } from './audioRoutes.js';
 import { imageRoutes } from './imageRoutes.js';
 import { videoRoutes } from './videoRoutes.js';
 import { studioRoutes } from './studioRoutes.js';
+import { chatRoutes } from './chat.js';
 
 // Social modules
 import { youtubeRoutes } from './youtube.js';
 import { instagramRoutes } from './instagram.js';
 import { tiktokYoutubeRoutes } from './tiktokYoutube.js';
 import { universalRoutes } from './universal.js';
+
+// AIOS WhatsApp Gateway
+import { aiosRoutes } from './aios.js';
 
 const router = Router();
 
@@ -41,6 +45,12 @@ router.use('/v1/audio', audioRoutes);
 router.use('/v1/image', imageRoutes);
 router.use('/v1/video', videoRoutes);
 router.use('/v1/studio', studioRoutes);
+
+// AI Chat Routes
+router.use('/v1/chat', chatRoutes);
+
+// AIOS WhatsApp Gateway
+router.use('/aios', aiosRoutes);
 
 // API info endpoint
 router.get('/', (req, res) => {
