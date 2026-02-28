@@ -1,5 +1,12 @@
 # 📝 Changelog - APIBR2
 
+## [1.0.1] - 2026-02-25
+
+### 🔊 Audio Studio
+- Removido o modo `Chatterbox Lab` da interface do Estúdio de Áudio.
+- Removidas as rotas públicas de API para Chatterbox (`/api/v1/audio/chatterbox/health` e `/api/v1/audio/chatterbox/generate`).
+- Feedback registrado: qualidade de pronúncia em PT-BR percebida como "portunhol", com dicção/acento fora do esperado para uso no projeto.
+
 ## [1.0.0] - 2025-07-05
 
 ### 🎉 Lançamento Inicial
