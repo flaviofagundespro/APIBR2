@@ -1,84 +1,107 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import { Mic, Image as ImageIcon, Video, FolderOpen, ArrowRight, Download, Copy, Trash2, MessageSquare, Upload, RefreshCw, Users, FileText, Volume2, Music } from 'lucide-react';
+import { Mic, Image as ImageIcon, Video, FolderOpen, ArrowRight, Download, Copy, Trash2, MessageSquare, Upload, RefreshCw, Users, FileText, Volume2, Music, Code, Terminal, Server } from 'lucide-react';
 import VoiceOnboarding from './components/VoiceOnboarding.jsx';
 import './index.css';
 
 function Home() {
     return (
         <div className="app-container animate-fade-in">
-            <h1><span className="text-gradient">APIBR2 Studio</span></h1>
-            <p style={{ textAlign: 'center', fontSize: '1.2rem', maxWidth: '700px', margin: '0 auto 5rem', color: '#cbd5e1' }}>
-                Sua central de produção de mídia de próxima geração. <br />
-                Clone vozes, gere imagens ultra-realistas e baixe vídeos em segundos.
-            </p>
+            <div className="hero-wrapper">
+                <div className="hero-badge">🚀 v2.0 AI Multimodal Platform</div>
+                <h1>Welcome to <span className="text-gradient">APIBR2 Studio</span></h1>
+                <p style={{ textAlign: 'center', fontSize: '1.25rem', maxWidth: '750px', margin: '0 auto 3rem', color: '#94a3b8' }}>
+                    Sua central de produção de mídia alimentada por IA. <br />
+                    Clone vozes perfeitamente, gere imagens ultra-realistas com Stable Diffusion e baixe vídeos multimidias do mundo todo.
+                </p>
+                <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
+                    <Link to="/image-studio" className="btn" style={{ background: 'linear-gradient(135deg, #ec4899, #8b5cf6)' }}>
+                        Gerar Imagens
+                    </Link>
+                    <Link to="/apidocs" className="btn btn-secondary">
+                        <Terminal size={18} style={{ marginRight: '8px' }} /> Explorar API
+                    </Link>
+                </div>
+            </div>
 
             <div className="nav-grid">
                 <Link to="/chat-studio" className="nav-item">
                     <div className="glass-card">
-                        <div className="icon-wrapper" style={{ background: 'rgba(250, 204, 21, 0.15)' }}>
-                            <MessageSquare size={36} color="#facc15" />
+                        <div className="icon-wrapper" style={{ background: 'rgba(250, 204, 21, 0.15)', color: '#facc15' }}>
+                            <MessageSquare size={32} />
                         </div>
                         <h2>Chat Brain</h2>
-                        <p>Seu assistente de IA local. Converse com Qwen, Llama e modelos especializados.</p>
-                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#fde047', fontWeight: '600' }}>
-                            Iniciar Chat <ArrowRight size={18} style={{ marginLeft: '8px' }} />
+                        <p>Assistente de IA local LLM com raciocínio profundo.</p>
+                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#fde047', fontWeight: '600', fontSize: '0.9rem' }}>
+                            Iniciar Chat <ArrowRight size={16} style={{ marginLeft: '8px' }} />
                         </div>
                     </div>
                 </Link>
 
                 <Link to="/audio-studio" className="nav-item">
                     <div className="glass-card">
-                        <div className="icon-wrapper" style={{ background: 'rgba(59, 130, 246, 0.15)' }}>
-                            <Mic size={36} color="#3b82f6" />
+                        <div className="icon-wrapper" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6' }}>
+                            <Mic size={32} />
                         </div>
-                        <h2>Áudio Studio</h2>
-                        <p>Clonagem de voz instantânea e processamento de áudio com qualidade de estúdio.</p>
-                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#60a5fa', fontWeight: '600' }}>
-                            Acessar Studio <ArrowRight size={18} style={{ marginLeft: '8px' }} />
+                        <h2>Voice Studio</h2>
+                        <p>Clonagem de vozes (XTTSv2) e narrações ultra naturais instântaneas.</p>
+                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#60a5fa', fontWeight: '600', fontSize: '0.9rem' }}>
+                            Criar Áudio <ArrowRight size={16} style={{ marginLeft: '8px' }} />
                         </div>
                     </div>
                 </Link>
 
                 <Link to="/image-studio" className="nav-item">
                     <div className="glass-card">
-                        <div className="icon-wrapper" style={{ background: 'rgba(236, 72, 153, 0.15)' }}>
-                            <ImageIcon size={36} color="#ec4899" />
+                        <div className="icon-wrapper" style={{ background: 'rgba(236, 72, 153, 0.15)', color: '#ec4899' }}>
+                            <ImageIcon size={32} />
                         </div>
                         <h2>Image Studio</h2>
-                        <p>Crie arte digital deslumbrante com Stable Diffusion 3.5 e Flux.</p>
-                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#f472b6', fontWeight: '600' }}>
-                            Criar Imagens <ArrowRight size={18} style={{ marginLeft: '8px' }} />
+                        <p>Stable Diffusion 3.5, Flux e Magic Prompts para criadores de arte e devs.</p>
+                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#f472b6', fontWeight: '600', fontSize: '0.9rem' }}>
+                            Gerar Arte <ArrowRight size={16} style={{ marginLeft: '8px' }} />
                         </div>
                     </div>
                 </Link>
 
                 <Link to="/video-studio" className="nav-item">
                     <div className="glass-card">
-                        <div className="icon-wrapper" style={{ background: 'rgba(139, 92, 246, 0.15)' }}>
-                            <Video size={36} color="#8b5cf6" />
+                        <div className="icon-wrapper" style={{ background: 'rgba(139, 92, 246, 0.15)', color: '#8b5cf6' }}>
+                            <Video size={32} />
                         </div>
-                        <h2>Downloader Universal</h2>
-                        <p>Download de vídeos do TikTok (sem marca), Instagram, YouTube e mais.</p>
-                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#a78bfa', fontWeight: '600' }}>
-                            Baixar Vídeos <ArrowRight size={18} style={{ marginLeft: '8px' }} />
+                        <h2>Video Downloader</h2>
+                        <p>Busque e baixe mídias do TikTok, Youtube e Instagram via link.</p>
+                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#a78bfa', fontWeight: '600', fontSize: '0.9rem' }}>
+                            Acessar Downloader <ArrowRight size={16} style={{ marginLeft: '8px' }} />
                         </div>
                     </div>
                 </Link>
 
                 <Link to="/projects" className="nav-item">
                     <div className="glass-card">
-                        <div className="icon-wrapper" style={{ background: 'rgba(16, 185, 129, 0.15)' }}>
-                            <FolderOpen size={36} color="#10b981" />
+                        <div className="icon-wrapper" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>
+                            <FolderOpen size={32} />
                         </div>
                         <h2>Meus Projetos</h2>
-                        <p>Galeria centralizada de todos os seus downloads e criações.</p>
-                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#34d399', fontWeight: '600' }}>
-                            Ver Galeria <ArrowRight size={18} style={{ marginLeft: '8px' }} />
+                        <p>Galeria central de todas as criações do servidor.</p>
+                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#34d399', fontWeight: '600', fontSize: '0.9rem' }}>
+                            Ver Projetos <ArrowRight size={16} style={{ marginLeft: '8px' }} />
                         </div>
                     </div>
                 </Link>
 
+                <Link to="/apidocs" className="nav-item">
+                    <div className="glass-card">
+                        <div className="icon-wrapper" style={{ background: 'rgba(249, 115, 22, 0.15)', color: '#f97316' }}>
+                            <Code size={32} />
+                        </div>
+                        <h2>API Specs</h2>
+                        <p>Documentação para plugar APIBR2 no n8n, Supabase e sistemas remotos.</p>
+                        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#fb923c', fontWeight: '600', fontSize: '0.9rem' }}>
+                            Ver Documentação <ArrowRight size={16} style={{ marginLeft: '8px' }} />
+                        </div>
+                    </div>
+                </Link>
             </div>
         </div>
     );
@@ -145,7 +168,7 @@ function AudioStudio() {
                     }
                 }
             })
-            .catch(() => {});
+            .catch(() => { });
     };
 
     useEffect(() => { loadVoices(); }, []);
@@ -402,8 +425,8 @@ function AudioStudio() {
             {/* Main tab toggle */}
             <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
                 {[
-                    { key: 'txt2audio',  label: 'Texto → Áudio',    icon: <Volume2 size={16} /> },
-                    { key: 'audio2txt',  label: 'Áudio → Texto',    icon: <FileText size={16} /> },
+                    { key: 'txt2audio', label: 'Texto → Áudio', icon: <Volume2 size={16} /> },
+                    { key: 'audio2txt', label: 'Áudio → Texto', icon: <FileText size={16} /> },
                     { key: 'onboarding', label: 'Onboarding de Voz', icon: <Mic size={16} /> },
                 ].map(tab => (
                     <button
@@ -2524,9 +2547,86 @@ function ChatStudio() {
 }
 
 
+function ApiDocs() {
+    const examples = [
+        {
+            title: "Gerar Voz (Clone)",
+            method: "POST",
+            endpoint: "http://apibr.giesel.com.br/api/v1/audio/generate",
+            body: `{\n  "text": "Olá mundo, voz clonada!",\n  "reference_audio_url": "http://exemplo.com/voz.wav",\n  "language": "pt",\n  "mode": "clone"\n}`
+        },
+        {
+            title: "Gerar Imagem (Dreamshaper 8)",
+            method: "POST",
+            endpoint: "http://apibr.giesel.com.br/api/v1/image/generate",
+            body: `{\n  "prompt": "Cyberpunk city at night, neon lights, 4k",\n  "model": "lykon/dreamshaper-8",\n  "steps": 20,\n  "size": "1024x1024"\n}`
+        },
+        {
+            title: "Transcrever Áudio (Whisper)",
+            method: "POST",
+            endpoint: "http://apibr.giesel.com.br/api/v1/audio/transcribe (FormData)",
+            body: `FormData {\n  audio_file: [Arquivo.mp3/wav],\n  language: "pt"\n}`
+        },
+        {
+            title: "Chat / LLM",
+            method: "POST",
+            endpoint: "http://apibr.giesel.com.br/api/v1/chat/chat",
+            body: `{\n  "messages": [\n    {"role": "user", "content": "Me conte uma piada?"}\n  ],\n  "model": "qwen2.5:3b"\n}`
+        }
+    ];
+
+    return (
+        <div className="app-container animate-fade-in" style={{ paddingBottom: '5rem' }}>
+            <Link to="/" className="btn btn-secondary" style={{ marginBottom: '2rem' }}>← Voltar para Home</Link>
+
+            <div className="hero-wrapper" style={{ textAlign: 'left', marginBottom: '3rem' }}>
+                <h1 style={{ textAlign: 'left', background: 'none', WebkitTextFillColor: 'initial', color: 'white' }}>Documentação <span className="text-gradient">API</span></h1>
+                <p>Integre as capacidades da APIBR2 nativamente em suas aplicações, Node, Python, n8n, ou Supabase usando endpoints REST padrão abaixo.</p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '3rem' }}>
+                {examples.map((ex, i) => (
+                    <div key={i} className="glass-card" style={{ padding: '2rem' }}>
+                        <h2 style={{ color: '#60a5fa', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                            <Server size={24} /> {ex.title}
+                        </h2>
+
+                        <div className="docs-endpoint">
+                            <span className="docs-method" style={{
+                                background: ex.method === 'POST' ? '#3b82f6' : '#10b981'
+                            }}>{ex.method}</span>
+                            <span style={{ color: '#f8fafc', wordBreak: 'break-all' }}>{ex.endpoint}</span>
+                        </div>
+
+                        <div style={{ marginTop: '1rem' }}>
+                            <p style={{ fontSize: '0.9rem', color: '#94a3b8', marginBottom: '0.5rem' }}>Exemplo de Payload (JSON):</p>
+                            <pre style={{
+                                background: 'rgba(0,0,0,0.5)',
+                                padding: '1.5rem',
+                                borderRadius: '12px',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                color: '#a78bfa',
+                                overflowX: 'auto',
+                                fontSize: '0.95rem'
+                            }}>
+                                <code>{ex.body}</code>
+                            </pre>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 function App() {
     return (
         <Router>
+            <div className="bg-blobs">
+                <div className="blob-1"></div>
+                <div className="blob-2"></div>
+                <div className="blob-3"></div>
+            </div>
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/audio-studio" element={<AudioStudio />} />
@@ -2535,6 +2635,7 @@ function App() {
                 <Route path="/chat-studio" element={<ChatStudio />} />
                 <Route path="/projects" element={<Projects />} />
                 <Route path="/voice-onboarding" element={<VoiceOnboarding />} />
+                <Route path="/apidocs" element={<ApiDocs />} />
             </Routes>
         </Router>
     );
