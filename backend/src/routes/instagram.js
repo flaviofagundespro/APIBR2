@@ -85,4 +85,58 @@ router.post('/download', async (req, res) => {
     }
 });
 
+router.post('/profile', async (req, res) => {
+    try {
+        const { username, profile } = req.body;
+        if (!username) {
+            return res.status(400).json({ error: 'Missing username' });
+        }
+        const response = await axios.post(`${PYTHON_INSTAGRAM_URL}/instagram/profile`, { username, profile });
+        res.json({ success: true, data: response.data });
+    } catch (error) {
+        console.error('Instagram profile error:', error.message);
+        if (error.code === 'ECONNREFUSED') {
+            return res.status(503).json({ error: 'Service Unavailable', message: 'Instagram service is not running.' });
+        }
+        const status = error.response?.status || 500;
+        res.status(status).json({ error: 'Profile fetch failed', details: error.response?.data?.detail || error.message });
+    }
+});
+
+router.post('/posts', async (req, res) => {
+    try {
+        const { username, limit, profile } = req.body;
+        if (!username) {
+            return res.status(400).json({ error: 'Missing username' });
+        }
+        const response = await axios.post(`${PYTHON_INSTAGRAM_URL}/instagram/posts`, { username, limit, profile });
+        res.json({ success: true, data: response.data });
+    } catch (error) {
+        console.error('Instagram posts error:', error.message);
+        if (error.code === 'ECONNREFUSED') {
+            return res.status(503).json({ error: 'Service Unavailable', message: 'Instagram service is not running.' });
+        }
+        const status = error.response?.status || 500;
+        res.status(status).json({ error: 'Posts fetch failed', details: error.response?.data?.detail || error.message });
+    }
+});
+
+router.post('/post', async (req, res) => {
+    try {
+        const { url, profile } = req.body;
+        if (!url) {
+            return res.status(400).json({ error: 'Missing url' });
+        }
+        const response = await axios.post(`${PYTHON_INSTAGRAM_URL}/instagram/post`, { url, profile });
+        res.json({ success: true, data: response.data });
+    } catch (error) {
+        console.error('Instagram post error:', error.message);
+        if (error.code === 'ECONNREFUSED') {
+            return res.status(503).json({ error: 'Service Unavailable', message: 'Instagram service is not running.' });
+        }
+        const status = error.response?.status || 500;
+        res.status(status).json({ error: 'Post fetch failed', details: error.response?.data?.detail || error.message });
+    }
+});
+
 export { router as instagramRoutes };

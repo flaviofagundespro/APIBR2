@@ -89,7 +89,7 @@ export class AiosService {
         cwd: AIOS_PROJECT_PATH,
         shell: '/bin/bash',
         timeout: 120000,
-        env: { ...process.env, HOME: process.env.HOME || '/home/flaviofagundes' },
+        env: { ...process.env, HOME: process.env.HOME || '/home/flaviofagundes', CLAUDECODE: undefined },
       }, async (err, stdout, stderr) => {
         await unlink(tmpFile).catch(() => {});
 

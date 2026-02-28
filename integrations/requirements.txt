@@ -17,6 +17,11 @@ librosa>=0.10.0
 soundfile>=0.12.0
 pydub>=0.25.0
 
+# Audio AI (Speech & Transcription)
+faster-whisper>=1.0.0
+pyannote-audio>=3.1.0
+TTS>=0.22.0               # Coqui TTS — includes XTTS-v2 (voice cloning) and vits (fast PT-BR)
+
 # Image Processing
 Pillow>=9.5.0
 opencv-python>=4.8.0
@@ -27,6 +32,7 @@ moviepy>=1.0.3
 ffmpeg-python>=0.2.0
 yt-dlp>=2025.11.12  # Keep updated for TikTok compatibility
 browser-cookie3>=0.19.1  # Optional: for automatic browser cookie extraction
+instaloader>=4.10.0  # Instagram profile/post scraping via session cookies
 
 # HTTP Requests
 requests>=2.31.0

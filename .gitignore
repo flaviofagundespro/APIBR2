@@ -48,6 +48,20 @@ integrations/downloads/
 integrations/cookies/
 backend/logs/
 
+# Local ML artifacts (do not version large model/data outputs)
+backend/models/
+backend/workers/
+integrations/models/
+integrations/generated_audio/
+
+# Local tooling/runtime artifacts
+.playwright-cli/
+nohup.out
+start_log.txt
+resultado_clone_flavio.wav
+test_xtts_finetuned_flaviobest.wav
+test_xtts_finetuned_flaviofagundes.wav
+
 # Temporary & Backup files
 *.tmp
 *.temp

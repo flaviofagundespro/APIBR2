@@ -5,22 +5,98 @@ import yt_dlp
 import os
 from pathlib import Path
 import logging
+from typing import Optional
+import http.cookiejar
+import requests as req_lib
+import time
 
-# Configurar logging
+# Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="APIBR2 Universal Video Downloader", version="2.0.0")
 
-# Configurações
+# Configuration
 BASE_DIR = Path(__file__).parent
 DOWNLOAD_DIR = BASE_DIR / "downloads"
 DOWNLOAD_DIR.mkdir(exist_ok=True)
 
 COOKIES_DIR = BASE_DIR / "cookies"
 COOKIES_DIR.mkdir(exist_ok=True)
-COOKIES_FILE = COOKIES_DIR / "insta_cookie.txt"
 TIKTOK_COOKIES_FILE = COOKIES_DIR / "tiktok_cookies.txt"  # Fixed: was tiktok_cookie.txt
+
+
+# ---------------------------------------------------------------------------
+# Instagram rate limiter — enforce minimum gap between outbound API calls
+# ---------------------------------------------------------------------------
+IG_MIN_INTERVAL = 60  # minimum seconds between requests to Instagram API
+_ig_last_request_at: float = 0.0
+
+
+def _ig_check_rate_limit() -> None:
+    """Block the request if Instagram was called less than IG_MIN_INTERVAL seconds ago."""
+    global _ig_last_request_at
+    elapsed = time.time() - _ig_last_request_at
+    if elapsed < IG_MIN_INTERVAL:
+        wait = int(IG_MIN_INTERVAL - elapsed) + 1
+        raise HTTPException(
+            status_code=429,
+            detail=f"Preventive rate limit: wait {wait}s before the next Instagram request."
+        )
+    _ig_last_request_at = time.time()
+
+
+# ---------------------------------------------------------------------------
+
+
+def get_cookie_file(profile: str, platform: str = "instagram") -> Path:
+    """Resolve cookie file path by profile name with legacy fallback."""
+    path = COOKIES_DIR / f"{platform}_{profile}.txt"
+    if not path.exists():
+        fallback = COOKIES_DIR / "insta_cookie.txt"
+        if fallback.exists():
+            return fallback
+        raise FileNotFoundError(f"Cookie file not found: {path}")
+    return path
+
+
+_IG_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "X-IG-App-ID": "936619743392459",
+    "Accept": "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.instagram.com/",
+    "X-Requested-With": "XMLHttpRequest",
+}
+
+
+def build_ig_session(profile: str) -> req_lib.Session:
+    """Create a requests.Session with Instagram cookies loaded from Netscape file."""
+    cookie_file = get_cookie_file(profile)
+    cj = http.cookiejar.MozillaCookieJar()
+    cj.load(str(cookie_file), ignore_discard=True, ignore_expires=True)
+    # Extract CSRF token before assigning the jar to the session
+    csrf = next((c.value for c in cj if c.name == "csrftoken"), None)
+    session = req_lib.Session()
+    session.cookies = cj
+    session.headers.update(_IG_HEADERS)
+    if csrf:
+        session.headers["X-CSRFToken"] = csrf
+    return session
+
+
+def _ig_raise_for_status(response: req_lib.Response, context: str = "") -> None:
+    """Raise a clean HTTPException based on Instagram response status."""
+    if response.status_code == 200:
+        return
+    if response.status_code == 429:
+        raise HTTPException(status_code=429, detail="Instagram rate limit hit. Try again in ~30 minutes.")
+    if response.status_code in (401, 403):
+        raise HTTPException(status_code=401, detail="Instagram authentication failed. Please refresh your cookies.")
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail=f"Not found on Instagram{': ' + context if context else ''}.")
+    raise HTTPException(status_code=502, detail=f"Instagram returned HTTP {response.status_code}{': ' + context if context else ''}.")
+
 
 class DownloadRequest(BaseModel):
     url: str
@@ -36,6 +112,19 @@ class YouTubeRequest(BaseModel):
     audio_only: bool = False
     playlist: bool = False
 
+class InstagramProfileRequest(BaseModel):
+    username: str
+    profile: str = "flaviofagundespro"
+
+class InstagramPostsRequest(BaseModel):
+    username: str
+    limit: int = 12
+    profile: str = "flaviofagundespro"
+
+class InstagramPostRequest(BaseModel):
+    url: str
+    profile: str = "flaviofagundespro"
+
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "service": "Universal Video Downloader (Insta/TikTok/YT)"}
@@ -47,8 +136,12 @@ def get_base_opts():
         'no_warnings': True,
         'restrictfilenames': True,
     }
-    if COOKIES_FILE.exists():
-        opts['cookiefile'] = str(COOKIES_FILE)
+    # Try default profile cookie for legacy download endpoints
+    try:
+        cookie_file = get_cookie_file("flaviofagundespro")
+        opts['cookiefile'] = str(cookie_file)
+    except FileNotFoundError:
+        pass
     return opts
 
 @app.post("/download")
@@ -381,7 +474,7 @@ def download_universal(req: DownloadRequest):
     if req.url.startswith("blob:"):
          raise HTTPException(
             status_code=400,
-            detail="Blob URLs (começando com 'blob:') são links temporários do navegador e não podem ser baixados. Por favor, use o link da página do produto."
+            detail="Blob URLs (starting with 'blob:') are temporary browser links and cannot be downloaded. Please use the product page URL instead."
         )
 
     try:
@@ -446,24 +539,145 @@ def download_universal(req: DownloadRequest):
         if "HTTP Error 503" in error_msg:
              raise HTTPException(
                 status_code=503, 
-                detail="A plataforma bloqueou a requisição (Erro 503). Tente novamente mais tarde."
+                detail="The platform blocked the request (Error 503). Please try again later."
             )
         
         if "Postprocessing" in error_msg:
              raise HTTPException(
                 status_code=500,
-                detail="Erro de processamento de vídeo (ffmpeg). O vídeo pode estar protegido ou corrompido."
+                detail="Video post-processing error (ffmpeg). The video may be protected or corrupted."
             )
 
         if "Unsupported URL" in error_msg and "shopee" in req.url:
             raise HTTPException(
                 status_code=400,
-                detail="A Shopee protege as páginas do produto (Unsupported URL). Para baixar da Shopee, por favor use o link DIRETO do vídeo (inspecione o elemento e copie o link .mp4 ou similar)."
+                detail="Shopee protects its product pages (Unsupported URL). To download from Shopee, use the DIRECT video link (inspect the element and copy the .mp4 or similar URL)."
             )
             
         raise HTTPException(status_code=500, detail=f"Download failed: {error_msg}")
 
+@app.post("/instagram/profile")
+def get_instagram_profile(req: InstagramProfileRequest):
+    """Return profile metadata for an Instagram account."""
+    logger.info(f"👤 Instagram profile request: {req.username} (profile: {req.profile})")
+    _ig_check_rate_limit()
+    try:
+        session = build_ig_session(req.profile)
+        resp = session.get(
+            "https://i.instagram.com/api/v1/users/web_profile_info/",
+            params={"username": req.username},
+            timeout=15,
+        )
+        _ig_raise_for_status(resp, req.username)
+        data = resp.json()
+        user = data["data"]["user"]
+        return {
+            "username": user["username"],
+            "full_name": user["full_name"],
+            "biography": user.get("biography", ""),
+            "followers": user["edge_followed_by"]["count"],
+            "following": user["edge_follow"]["count"],
+            "posts_count": user["edge_owner_to_timeline_media"]["count"],
+            "profile_pic_url": user.get("profile_pic_url_hd") or user.get("profile_pic_url", ""),
+            "is_private": user.get("is_private", False),
+        }
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Instagram profile error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/instagram/posts")
+def get_instagram_posts(req: InstagramPostsRequest):
+    """Return the N most recent posts for an Instagram account."""
+    logger.info(f"📋 Instagram posts request: {req.username} limit={req.limit} (profile: {req.profile})")
+    _ig_check_rate_limit()
+    try:
+        session = build_ig_session(req.profile)
+        # Get user_id first
+        resp = session.get(
+            "https://i.instagram.com/api/v1/users/web_profile_info/",
+            params={"username": req.username},
+            timeout=15,
+        )
+        _ig_raise_for_status(resp, req.username)
+        user = resp.json()["data"]["user"]
+        edges = user["edge_owner_to_timeline_media"]["edges"][: req.limit]
+        posts = []
+        for edge in edges:
+            node = edge["node"]
+            caption_edges = node.get("edge_media_to_caption", {}).get("edges", [])
+            caption = caption_edges[0]["node"]["text"] if caption_edges else ""
+            posts.append({
+                "shortcode": node["shortcode"],
+                "url": f"https://www.instagram.com/p/{node['shortcode']}/",
+                "type": node.get("__typename", ""),
+                "caption": caption,
+                "likes": node.get("edge_media_preview_like", {}).get("count", 0),
+                "comments": node.get("edge_media_to_comment", {}).get("count", 0),
+                "timestamp": node.get("taken_at_timestamp", ""),
+                "thumbnail_url": node.get("thumbnail_src") or node.get("display_url", ""),
+            })
+        return posts
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Instagram posts error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/instagram/post")
+def get_instagram_post(req: InstagramPostRequest):
+    """Return data for a single Instagram post by URL or shortcode."""
+    logger.info(f"🔍 Instagram post request: {req.url} (profile: {req.profile})")
+    _ig_check_rate_limit()
+    try:
+        url = req.url.rstrip("/")
+        if "/p/" in url:
+            shortcode = url.split("/p/")[-1].split("/")[0].split("?")[0]
+        elif "/reel/" in url:
+            shortcode = url.split("/reel/")[-1].split("/")[0].split("?")[0]
+        else:
+            shortcode = url
+
+        session = build_ig_session(req.profile)
+        resp = session.get(
+            f"https://www.instagram.com/p/{shortcode}/?__a=1&__d=dis",
+            timeout=15,
+        )
+        _ig_raise_for_status(resp, shortcode)
+        data = resp.json()
+        media = data.get("graphql", {}).get("shortcode_media") or data.get("items", [{}])[0]
+        caption_edges = media.get("edge_media_to_caption", {}).get("edges", [])
+        caption = caption_edges[0]["node"]["text"] if caption_edges else media.get("caption", {}) or ""
+        if isinstance(caption, dict):
+            caption = caption.get("text", "")
+        return {
+            "shortcode": shortcode,
+            "url": f"https://www.instagram.com/p/{shortcode}/",
+            "type": media.get("__typename", media.get("media_type", "")),
+            "caption": caption,
+            "likes": media.get("edge_media_preview_like", {}).get("count") or media.get("like_count", 0),
+            "comments": media.get("edge_media_to_comment", {}).get("count") or media.get("comment_count", 0),
+            "timestamp": media.get("taken_at_timestamp") or media.get("taken_at", ""),
+            "thumbnail_url": media.get("thumbnail_src") or media.get("display_url", ""),
+        }
+    except HTTPException:
+        raise
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Instagram post error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
-    logger.info(f"🚀 Starting Universal Video Downloader on port 5002")
+    _port = int(os.getenv("INSTAGRAM_SERVER_PORT", "5004"))
+    logger.info(f"🚀 Starting Universal Video Downloader on port {_port}")
     logger.info(f"📂 Downloads: {DOWNLOAD_DIR}")
-    uvicorn.run(app, host="0.0.0.0", port=5002)
+    uvicorn.run(app, host="0.0.0.0", port=_port)

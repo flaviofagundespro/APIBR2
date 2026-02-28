@@ -31,17 +31,9 @@ export const generateImage = async (req, res, next) => {
     const supportedModels = {
       // Public models (safe defaults for AMD/CPU hosts)
       'runwayml/stable-diffusion-v1-5': 'Stable Diffusion 1.5 (Public)',
-      'stabilityai/sdxl-turbo': 'SDXL Turbo (Very fast)',
       'lykon/dreamshaper-8': 'DreamShaper (Artistic)',
       'stable-diffusion-1.5': 'Stable Diffusion 1.5 (short name)',
-      'sdxl-turbo': 'SDXL Turbo (short name)',
       'dreamshaper': 'DreamShaper (short name)',
-
-      // Premium models (require authentication/token)
-      'stabilityai/stable-diffusion-3.5': 'Stable Diffusion 3.5',
-      'stabilityai/stable-diffusion-3.5-large': 'Stable Diffusion 3.5 Large',
-      'stable-diffusion-3.5': 'Stable Diffusion 3.5 (short name)',
-      'stable-diffusion-3.5-large': 'Stable Diffusion 3.5 Large (short name)',
 
       // Additional community models
       'prompthero/openjourney': 'OpenJourney (Midjourney style)',
@@ -50,7 +42,6 @@ export const generateImage = async (req, res, next) => {
       'anything-v3': 'Anything V3 (short name)',
 
       // Fallback alias
-
       'SG161222/Realistic_Vision_V5.1_noVAE': 'Realistic Vision V5.1 (Ultra Realista)',
       'emilianJR/epiCRealism': 'EpicRealism (Ultra Definido)',
       'realistic-vision': 'Realistic Vision (short name)',
@@ -82,7 +73,7 @@ export const generateImage = async (req, res, next) => {
     // Forward request to the Python image service
     try {
       logger.info(`Calling Python image generation server at ${PYTHON_SERVER_URL}...`);
-      logger.info(`Request: prompt="${prompt}", model="${model}", size=${width}x${height}`);
+      logger.info(`Request: prompt="${prompt}", model="${model}", size=${width}x${height}, device="${req.body.device || 'auto'}"`);
 
       const pythonResponse = await axios.post(`${PYTHON_SERVER_URL}/generate`, {
         prompt,
@@ -91,7 +82,7 @@ export const generateImage = async (req, res, next) => {
         steps: req.body.steps ? parseInt(req.body.steps) : 10,
         guidance_scale: req.body.guidance_scale ? parseFloat(req.body.guidance_scale) : 7.5,
         scheduler: req.body.scheduler || 'dpm++',
-        device: req.body.device || 'auto',
+        device: req.body.device || 'cuda', // Force CUDA by default for API requests on Linux
         width: width,
         height: height,
         seed: req.body.seed ? parseInt(req.body.seed) : undefined
@@ -140,17 +131,9 @@ export const getModels = async (req, res, next) => {
     const supportedModels = {
       // Public models (safe defaults for AMD/CPU hosts)
       'runwayml/stable-diffusion-v1-5': 'Stable Diffusion 1.5 (Public)',
-      'stabilityai/sdxl-turbo': 'SDXL Turbo (Very fast)',
       'lykon/dreamshaper-8': 'DreamShaper (Artistic)',
       'stable-diffusion-1.5': 'Stable Diffusion 1.5 (short name)',
-      'sdxl-turbo': 'SDXL Turbo (short name)',
       'dreamshaper': 'DreamShaper (short name)',
-
-      // Premium models (require authentication/token)
-      'stabilityai/stable-diffusion-3.5': 'Stable Diffusion 3.5',
-      'stabilityai/stable-diffusion-3.5-large': 'Stable Diffusion 3.5 Large',
-      'stable-diffusion-3.5': 'Stable Diffusion 3.5 (short name)',
-      'stable-diffusion-3.5-large': 'Stable Diffusion 3.5 Large (short name)',
 
       // Additional community models
       'prompthero/openjourney': 'OpenJourney (Midjourney style)',
@@ -159,7 +142,6 @@ export const getModels = async (req, res, next) => {
       'anything-v3': 'Anything V3 (short name)',
 
       // Fallback alias
-
       'SG161222/Realistic_Vision_V5.1_noVAE': 'Realistic Vision V5.1 (Ultra Realista)',
       'emilianJR/epiCRealism': 'EpicRealism (Ultra Definido)',
       'realistic-vision': 'Realistic Vision (short name)',

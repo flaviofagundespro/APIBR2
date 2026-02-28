@@ -2,13 +2,13 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-import ollama
 from ollama import Client
 import time
 import os
 
-# Client dedicado na porta 11435 (CPU OLLAMA)
-client = Client(host='http://127.0.0.1:11435')
+# Ollama host (default: standard local port 11434)
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+client = Client(host=OLLAMA_HOST)
 
 app = FastAPI(title="APIBR2 Magic Prompt Service")
 
@@ -80,18 +80,33 @@ async def list_models():
     """List available models from Ollama"""
     try:
         response = client.list()
-        # Extract just the relevant info
+        # Extract just the relevant info.
+        # Ollama versions may return model entries with either "name" or "model".
+        models_raw = response.get('models', []) if isinstance(response, dict) else getattr(response, 'models', [])
         models = []
-        for m in response.get('models', []):
+        for m in models_raw:
+            model_id = m.get('name') or m.get('model') or 'unknown'
+            size = m.get('size', 0)
             models.append({
-                "id": m['name'],
-                "name": m['name'],
-                "desc": f"Size: {m.get('size', 0) // 1024 // 1024}MB"
+                "id": model_id,
+                "name": model_id,
+                "desc": f"Size: {size // 1024 // 1024}MB"
             })
         return {"models": models}
     except Exception as e:
         print(f"❌ Error listing models: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/health")
+async def health():
+    """Chat server health endpoint (includes Ollama reachability)."""
+    try:
+        client.list()
+        return {"status": "ok", "ollama": "connected"}
+    except Exception as e:
+        # Service is alive, but upstream Ollama is unavailable.
+        return {"status": "degraded", "ollama": "disconnected", "detail": str(e)}
 
 from typing import List
 
