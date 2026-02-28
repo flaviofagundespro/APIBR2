@@ -1,100 +1,95 @@
-# 📋 APIBR2 - Project Summary
+# APIBR2 — Project Summary
 
-## 🎯 Organization Status
-**Date**: November 25, 2025
-**Status**: ✅ ORGANIZED AND DOCUMENTED FOR GITHUB
-
----
-
-## 📚 Documentation
-
-### 📄 Core Documents
-1. **README.md** - Main project overview and entry point.
-2. **CURRENT_STATUS.md** - Detailed status of features and tests.
-3. **QUICK_START.md** - Guide for new users.
-4. **CHANGELOG.md** - History of changes and updates.
-5. **docs/_ai/README.md** - AI/ML documentation index.
-6. **docs/_ai/api/IMAGE_API.md** - Complete reference for the Image Generation API.
-
-### 🚀 Automation Scripts
-1. **startwin.ps1** / **startlinux.sh** - One-click startup for the entire stack.
-2. **stopwin.ps1** / **stoplinux.sh** - Clean shutdown script for all services.
-3. **scripts/utils/check_status.ps1** - System health monitor.
+**Date:** 2026-02-16
+**Version:** 2.2.0
+**Status:** ✅ Production-ready on Ubuntu + AMD ROCm
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture
 
-### ✅ Node.js Backend (Port 3000)
-- Robust REST API Gateway.
-- Handles request validation, routing, and orchestration.
-- Proxies heavy compute tasks to Python services.
+### Node.js Backend (Port 3000)
+- REST API gateway — handles routing, validation, and orchestration
+- Proxies compute-heavy tasks to Python services
+- WhatsApp gateway via Evolution API
 
-### ✅ Python AI Services (Port 5001 & 5002)
-- **Image Server**: `ultra_optimized_server.py` (v2.0)
-    - Multi-device support (CPU/CUDA/DirectML).
-    - Optimized for Ryzen 9 and high-end CPUs.
-    - Supports SD 1.5, SDXL Turbo, and custom models.
-- **Instagram Server**: `instagram_server.py`
-    - Dedicated service for media downloading.
+### Python AI Services
+| Service | File | Port | Description |
+|---------|------|------|-------------|
+| Image Server | `ultra_optimized_server.py` | 5001 | Stable Diffusion (SD 1.5, SDXL Turbo, DreamShaper) via ROCm |
+| Audio Server | `audio_server.py` | 5002 | TTS + transcription + speaker diarization via ROCm |
 
-### ✅ Frontend (Port 5173)
-- React/Vite dashboard for monitoring and simple interactions.
+### Frontend (Port 5173)
+- React/Vite dashboard
+- **Image Studio** — txt2img, img2img
+- **Audio Studio** — txt→audio (TTS + voice clone), audio→txt (transcription + diarization)
 
-### ✅ n8n Integration
-- Native compatibility via JSON configuration.
-- Supports complex workflows (Scrape -> Summarize -> Generate Image).
-
----
-
-## 🎨 Key Features
-
-### 1. Web Scraping
-- **Puppeteer**: Full browser automation for complex sites.
-- **YouTube**: Metadata and transcript extraction.
-- **Instagram**: Media downloading capabilities.
-
-### 2. Generative AI
-- **Stable Diffusion**: High-quality image generation.
-- **Optimization**: Custom schedulers (DPM++) and memory management.
-- **Flexibility**: Runtime model switching and device selection.
+### n8n Integration
+- Native JSON configuration support
+- Supports chained workflows (scrape → summarize → generate image)
 
 ---
 
-## 🚀 How to Run
+## GPU Strategy: AMD ROCm
 
-### Quick Start
+All GPU inference runs via **AMD ROCm** on the RX 6750 XT (`gfx1030`, RDNA2).
+
+- `torch==2.5.1+rocm6.2` — locked version (2.6.0+rocm6.1 breaks Conv2d on this card)
+- Image generation: ~6s warm (vs ~40s on Windows/DirectML)
+- Audio transcription: **12.5x real-time** (whisper-large-v3-turbo, fp16)
+
+DirectML is no longer used. All references to Windows/DirectML in older docs are historical only.
+
+---
+
+## Key Features
+
+### Web Scraping
+- Puppeteer full-browser automation
+- YouTube metadata and transcript extraction
+- Instagram media downloading
+
+### Image Generation
+- Stable Diffusion 1.5, SDXL Turbo, DreamShaper 8
+- Runtime model switching, pipeline caching, automatic device fallback
+- Base64 response format for n8n compatibility
+
+### Audio Processing
+- Text-to-speech: 7 voices across PT-BR, EN, ES, DE
+- Transcription: whisper-large-v3-turbo, OGG Opus (WhatsApp) + WAV/MP3/FLAC/M4A
+- Speaker diarization: pyannote 3.3.2 (requires `HF_TOKEN`)
+
+---
+
+## How to Run (Linux)
+
 ```bash
-# 1. Install dependencies
-cd backend; npm install
-cd ../integrations; pip install -r requirements.txt
+# Install dependencies
+cd backend && npm install
+cd ../integrations && pip install -r requirements.txt
+pip uninstall torchcodec -y  # Required: incompatible with FFmpeg 6.x
 
-# 2. Start System
-./startwin.ps1    # Windows
-./startlinux.sh   # Linux/macOS
-```
+# Start all services
+./startlinux.sh
 
-### Maintenance
-```bash
-# Check status
-./scripts/utils/check_status.ps1
-
-# Stop all services (Kills processes on ports 3000, 5001, 5002)
-./stopwin.ps1     # Windows
-./stoplinux.sh    # Linux/macOS
+# Or individually:
+python integrations/ultra_optimized_server.py &  # Port 5001
+python integrations/audio_server.py &             # Port 5002
+node backend/server.js &                          # Port 3000
+cd frontend && npm run dev &                      # Port 5173
 ```
 
 ---
 
-## 🏆 Technical Achievements
+## Technical Achievements
 
-1. **Hybrid Architecture**: Seamless integration between Node.js (IO-bound) and Python (CPU/GPU-bound).
-2. **Local AI**: Zero dependency on external paid APIs for image generation.
-3. **Hardware Optimization**: Intelligent fallback and device selection logic.
-4. **Production Ready**: Structured logging, error handling, and automated recovery.
+1. **Hybrid architecture** — Node.js (I/O-bound) + Python (GPU-bound)
+2. **ROCm GPU acceleration** — Full AMD support without NVIDIA dependency
+3. **12.5x real-time transcription** — Entire meeting transcribed in minutes
+4. **Local AI** — No external paid APIs for image or audio generation
+5. **WhatsApp integration** — Evolution API for message-based workflows
 
 ---
 
-**APIBR2** - Professional Web Scraping and AI Media Production API
-**Version**: 1.1.0
-**Ready for Deployment**
+**APIBR2** — Professional Web Scraping and AI Media Production API
+**Platform:** Ubuntu + AMD ROCm

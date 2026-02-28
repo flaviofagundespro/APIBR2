@@ -10,6 +10,18 @@ This file contains the current state, architecture, and critical configurations 
 **Hardware**: AMD Ryzen 9 7900X + Radeon RX 6750 XT
 **Key Achievement**: Moved from Windows DirectML (slow) to Linux ROCm Native (fast).
 
+### Hardware Baseline (Host Machine)
+| Component | Specification |
+|--------|-------------------|
+| **CPU** | AMD Ryzen 9 7900X (12 cores / 24 threads, 4.7 GHz base, 5.6 GHz boost) |
+| **Motherboard** | Asus TUF Gaming X670E-Plus WIFI |
+| **RAM** | 32 GB DDR5 (2x16 GB) 5600 MHz |
+| **Storage** | Lexar Professional NM800 Pro 2 TB NVMe |
+| **GPU** | XFX AMD Radeon RX 6750 XT (12 GB GDDR6) |
+| **PSU** | MSI MAG A850GL 850W (80 Plus Gold) |
+| **Cooling** | Be Quiet Dark Rock Pro 5 |
+| **Case** | Cooler Master Masterbox TD500 Mesh ARGB |
+
 ### ⚡ Performance Benchmarks
 | Metric | Windows (DirectML) | Linux (ROCm 6.0) | Improvement |
 |--------|-------------------|------------------|-------------|

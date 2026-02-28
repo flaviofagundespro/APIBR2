@@ -1,13 +1,14 @@
-# APIBR2 - Update Report (February 2, 2026)
+# APIBR2 - ROCm Migration Notes (Updated 2026-02-16)
+
+> **Original report:** February 2, 2026. Updated 2026-02-16 to reflect current torch version.
 
 ## 🚀 Status Review
 
 ### 1. Image Generation (AMD GPU)
 **Status:** ✅ Native ROCm Working
-We ran a deep diagnostic on your environment.
-- **PyTorch Version:** 2.4.1+rocm6.0
-- **Device Detected:** AMD Radeon RX 6750 XT (via Native ROCm)
-- **Performance:** Excellent using the `cuda` backend alias provided by ROCm.
+- **PyTorch Version:** `2.5.1+rocm6.2` (locked — do NOT upgrade to 2.6.0+rocm6.1, breaks Conv2d on RX 6750 XT)
+- **Device Detected:** AMD Radeon RX 6750 XT via ROCm (`gfx1030`)
+- **Performance:** ~6s warm generation (512×512, SD 1.5)
 
 **Action Taken:**
 No code changes were needed in the image generation server (`ultra_optimized_server.py`) because it correctly detects `torch.cuda.is_available()` which returns `True` for your ROCm setup. You are **NOT** using emulation; you are using native, high-performance ROCm kernels.
@@ -34,7 +35,19 @@ Simply run `ollama pull <new-model>` in your terminal. Refresh the web page, and
 - Modified `backend/src/routes/chat.js`: Added proxy for model listing.
 - Modified `frontend/src/App.jsx`: Implemented dynamic fetching with fallback descriptions.
 
-## 📝 Recommendations for 2026
-- **LLM**: Keep your Ollama models updated. `llama3.2` and `qwen2.5` described in your code are still excellent choices.
-- **Image Gen**: Stick to the current setup. Native ROCm 6.0 is stable and fast for your RX 6750 XT. Avoid "DirectML" on Linux as it is slower than native ROCm.
-- **Startup**: Always use `./start_all.sh` to ensure the environment variables for CPU/GPU separation are applied correctly.
+### 4. Audio Studio (Added 2026-02-16)
+**Status:** ✅ All endpoints working via ROCm GPU
+
+- **Transcription:** `transformers` pipeline (HuggingFace) with `whisper-large-v3-turbo`, fp16, **12.5x real-time** on RX 6750 XT
+- **Speaker diarization:** `pyannote.audio==3.3.2` with monkey-patch for `huggingface_hub` 1.x compatibility
+- **TTS:** `edge-tts` cloud service (no local GPU required)
+- **Key gotcha:** `torchcodec` must be uninstalled — requires `libavutil.so.57` but Ubuntu 22.04 ships `.58` (FFmpeg 6.x)
+- See `docs/notes/audio-studio-status-2026-02-16.md` for full details
+
+## 📝 Recommendations
+
+- **Image Gen:** Stick to `torch==2.5.1+rocm6.2`. Native ROCm is ~6.5x faster than Windows DirectML. Do not use DirectML on Linux.
+- **Audio:** Use `transformers` pipeline (not `faster-whisper` — ctranslate2 is NVIDIA-only). ROCm fp16 is the target.
+- **LLM:** Keep Ollama models updated. `llama3.2` and `qwen2.5` are good choices.
+- **torch version:** Locked at `2.5.1+rocm6.2` for both image and audio servers. Any upgrade must be tested — 2.6.0+rocm6.1 is confirmed broken on gfx1030.
+- **Startup:** Use `./startlinux.sh` — ensures all ROCm env vars (`HSA_OVERRIDE_GFX_VERSION=10.3.0`, etc.) are set correctly.
