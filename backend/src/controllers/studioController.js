@@ -138,5 +138,40 @@ export const getFile = async (req, res, next) => {
   }
 };
 
+export const deleteFile = async (req, res, next) => {
+  try {
+    const { type, filename } = req.params;
+    const safeFilename = path.basename(filename);
+    if (!safeFilename || safeFilename !== filename) {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+
+    const intendedDir = type === 'download'
+      ? DOWNLOADS_DIR
+      : type === 'image'
+        ? IMAGES_DIR
+        : null;
+
+    if (!intendedDir) {
+      return res.status(400).json({ error: 'Invalid file type' });
+    }
+
+    const filepath = path.resolve(intendedDir, safeFilename);
+    if (!filepath.startsWith(path.resolve(intendedDir) + path.sep)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (!fs.existsSync(filepath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    fs.unlinkSync(filepath);
+    logger.info(`Deleted studio file: ${filepath}`);
+    return res.status(200).json({ success: true, type, filename: safeFilename });
+  } catch (error) {
+    logger.error('Error deleting studio file:', error);
+    next(error);
+  }
+};
 
 

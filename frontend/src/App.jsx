@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
-import { Mic, Image as ImageIcon, Video, FolderOpen, ArrowRight, Download, Copy, Trash2, MessageSquare, Upload, RefreshCw } from 'lucide-react';
+import { Mic, Image as ImageIcon, Video, FolderOpen, ArrowRight, Download, Copy, Trash2, MessageSquare, Upload, RefreshCw, Users, FileText, Volume2, Music } from 'lucide-react';
+import VoiceOnboarding from './components/VoiceOnboarding.jsx';
 import './index.css';
 
 function Home() {
@@ -77,22 +78,944 @@ function Home() {
                         </div>
                     </div>
                 </Link>
+
             </div>
         </div>
     );
 }
 
 function AudioStudio() {
+    const API = `http://${window.location.hostname}:3000/api/v1/audio`;
+
+    // ── Main tabs ──────────────────────────────────────────────────────────────
+    const [mainTab, setMainTab] = useState('txt2audio'); // 'txt2audio' | 'audio2txt' | 'onboarding'
+
+    // ── TTS / Clone state ──────────────────────────────────────────────────────
+    const [ttsMode, setTtsMode] = useState('quick'); // 'quick' | 'clone'
+    const [inputText, setInputText] = useState('');
+    const [selectedVoice, setSelectedVoice] = useState('pt-BR-FranciscaNeural');
+    const [voices, setVoices] = useState([]);
+    const [language, setLanguage] = useState('pt');
+    const [referenceAudio, setReferenceAudio] = useState(null);
+    const [referenceAudioName, setReferenceAudioName] = useState('');
+
+    // ── Voice profiles (saved XTTS clones) ─────────────────────────────────────
+    const [savedProfiles, setSavedProfiles] = useState([]);  // voices where is_profile===true
+    const [selectedProfileId, setSelectedProfileId] = useState('');  // profile_name of selected
+    const [addingVoice, setAddingVoice] = useState(false);
+    const [newVoiceName, setNewVoiceName] = useState('');
+    const [newVoiceFile, setNewVoiceFile] = useState(null);
+    const [newVoiceFileName, setNewVoiceFileName] = useState('');
+    const [savingProfile, setSavingProfile] = useState(false);
+    const [saveProfileMsg, setSaveProfileMsg] = useState('');
+
+    // ── Transcription state ────────────────────────────────────────────────────
+    const [transcribeMode, setTranscribeMode] = useState('simple'); // 'simple' | 'speakers'
+    const [audioFile, setAudioFile] = useState(null);
+    const [audioFileName, setAudioFileName] = useState('');
+    const [transLanguage, setTransLanguage] = useState('pt');
+    const [maxSpeakers, setMaxSpeakers] = useState(8);
+    const [transcriptResult, setTranscriptResult] = useState(null);
+
+    // ── Shared state ───────────────────────────────────────────────────────────
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [audioResult, setAudioResult] = useState(null);
+    const [gallery, setGallery] = useState([]);
+    const [gallerySearch, setGallerySearch] = useState('');
+    const [galleryModeFilter, setGalleryModeFilter] = useState('all');
+    const [galleryProfileFilter, setGalleryProfileFilter] = useState('all');
+    const [galleryMinRating, setGalleryMinRating] = useState(0);
+    const [gallerySort, setGallerySort] = useState('newest');
+    const [galleryPage, setGalleryPage] = useState(1);
+    const [galleryPageSize, setGalleryPageSize] = useState(10);
+
+    // ── Load voices on mount (also called after saving a new profile) ──────────
+    const loadVoices = () => {
+        fetch(`${API}/voices`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.voices) {
+                    setVoices(data.voices);
+                    const profiles = data.voices.filter(v => v.is_profile);
+                    setSavedProfiles(profiles);
+                    // Auto-select first profile if none selected
+                    if (profiles.length > 0 && !selectedProfileId) {
+                        setSelectedProfileId(profiles[0].profile_name);
+                    }
+                }
+            })
+            .catch(() => {});
+    };
+
+    useEffect(() => { loadVoices(); }, []);
+
+    // ── Handlers ───────────────────────────────────────────────────────────────
+
+    const handleSaveProfile = async () => {
+        if (!newVoiceName.trim() || !newVoiceFile) return;
+        setSavingProfile(true);
+        setSaveProfileMsg('');
+        try {
+            const formData = new FormData();
+            formData.append('name', newVoiceName.trim());
+            formData.append('reference_audio', newVoiceFile);
+            const response = await fetch(`${API}/voices/clone/save`, { method: 'POST', body: formData });
+            const data = await response.json();
+            if (!response.ok) {
+                setSaveProfileMsg(`Erro: ${data.message || 'Falha ao salvar perfil.'}`);
+                return;
+            }
+            setSaveProfileMsg(`✅ Perfil "${data.display_name}" salvo! (${data.duration_seconds}s)`);
+            setNewVoiceName('');
+            setNewVoiceFile(null);
+            setNewVoiceFileName('');
+            setAddingVoice(false);
+            // Reload voices to include new profile and auto-select it
+            await loadVoices();
+            setSelectedProfileId(data.profile_name);
+        } catch (e) {
+            setSaveProfileMsg('Erro de conexão ao salvar perfil.');
+        } finally {
+            setSavingProfile(false);
+        }
+    };
+
+    const sanitizeFilenamePart = (value) => {
+        if (!value) return '';
+        return String(value)
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/\.[a-z0-9]{1,5}$/i, '')
+            .replace(/[^a-zA-Z0-9_-]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .toLowerCase()
+            .slice(0, 40);
+    };
+
+    const detectAudioExtension = (audioBase64) => {
+        const match = audioBase64?.match(/^data:audio\/([^;]+);base64,/i);
+        const mimeSubtype = (match?.[1] || '').toLowerCase();
+        if (mimeSubtype.includes('mpeg') || mimeSubtype.includes('mp3')) return 'mp3';
+        if (mimeSubtype.includes('ogg')) return 'ogg';
+        if (mimeSubtype.includes('wav') || mimeSubtype.includes('wave')) return 'wav';
+        if (mimeSubtype.includes('webm')) return 'webm';
+        return 'wav';
+    };
+
+    const buildAudioFilename = (item) => {
+        const parts = [
+            'audio',
+            sanitizeFilenamePart(item.mode === 'clone' ? 'clone' : 'tts'),
+            sanitizeFilenamePart(item.model || 'sem-modelo'),
+            sanitizeFilenamePart(item.profile || ''),
+            sanitizeFilenamePart(item.reference_audio_name ? `ref-${item.reference_audio_name}` : ''),
+            sanitizeFilenamePart(item.rating ? `${item.rating}estrelas` : ''),
+            String(item.id),
+        ].filter(Boolean);
+        return `${parts.join('_')}.${detectAudioExtension(item.audio_base64)}`;
+    };
+
+    const renderSourceSummary = (item) => {
+        const bits = [
+            item.model ? `modelo: ${item.model}` : null,
+            item.mode === 'clone' && item.profile ? `perfil: ${item.profile}` : null,
+            item.reference_audio_name ? `ref: ${item.reference_audio_name}` : null,
+        ].filter(Boolean);
+        return bits.join(' • ');
+    };
+
+    const handleGenerate = async () => {
+        if (!inputText.trim()) return;
+        setLoading(true);
+        setError('');
+        setAudioResult(null);
+        try {
+            let response;
+            const formData = new FormData();
+            if (ttsMode === 'quick') {
+                formData.append('text', inputText.trim());
+                formData.append('voice', selectedVoice);
+                formData.append('language', language);
+                response = await fetch(`${API}/generate-speech`, { method: 'POST', body: formData });
+            } else if (ttsMode === 'clone') {
+                if (!selectedProfileId && !referenceAudio) {
+                    setError('Selecione uma voz ou envie um áudio de referência.');
+                    setLoading(false);
+                    return;
+                }
+
+                formData.append('text', inputText.trim());
+                formData.append('language', language);
+
+                if (selectedProfileId) {
+                    // Keep selected profile even if a one-off reference is uploaded.
+                    formData.append('voice_profile_name', selectedProfileId);
+                }
+                if (referenceAudio) {
+                    formData.append('reference_audio', referenceAudio);
+                }
+                response = await fetch(`${API}/clone-voice`, { method: 'POST', body: formData });
+            }
+            const data = await response.json();
+            if (!response.ok) { setError(data.message || 'Erro ao gerar áudio.'); return; }
+            const item = {
+                id: Date.now(),
+                audio_base64: data.audio_base64,
+                text: inputText.trim().slice(0, 80),
+                mode: ttsMode,
+                language,
+                duration: data.duration_seconds,
+                model: data.model,
+                profile: data.profile_used || data.user_id || null,
+                reference_audio_name: ttsMode === 'clone' && referenceAudioName ? referenceAudioName : null,
+                note: data.note || null,
+                rating: 0,
+            };
+            setAudioResult(item);
+            setGallery(prev => [item, ...prev]);
+        } catch (e) {
+            setError('Erro de conexão. Verifique se o serviço de áudio está rodando.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleTranscribe = async () => {
+        if (!audioFile) return;
+        setLoading(true);
+        setError('');
+        setTranscriptResult(null);
+        try {
+            const formData = new FormData();
+            formData.append('audio', audioFile);
+            formData.append('language', transLanguage);
+            let endpoint = `${API}/transcribe`;
+            if (transcribeMode === 'speakers') {
+                formData.append('max_speakers', maxSpeakers);
+                endpoint = `${API}/transcribe-meeting`;
+            }
+            const response = await fetch(endpoint, { method: 'POST', body: formData });
+            const data = await response.json();
+            if (!response.ok) { setError(data.message || 'Erro na transcrição.'); return; }
+            setTranscriptResult(data);
+        } catch (e) {
+            setError('Erro de conexão. Verifique se o serviço de áudio está rodando.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleCopyTranscript = () => {
+        const text = transcriptResult?.formatted_text || transcriptResult?.text || '';
+        navigator.clipboard.writeText(text);
+    };
+
+    const handleDownloadTranscript = () => {
+        const text = transcriptResult?.formatted_text || transcriptResult?.text || '';
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'transcricao.txt'; a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const handleDownloadAudio = (item) => {
+        const a = document.createElement('a');
+        a.href = item.audio_base64;
+        a.download = buildAudioFilename(item);
+        a.click();
+    };
+
+    const removeFromGallery = (id) => setGallery(prev => prev.filter(i => i.id !== id));
+    const rateGalleryItem = (id, rating) => {
+        setGallery(prev => prev.map(item => (item.id === id ? { ...item, rating } : item)));
+        setAudioResult(prev => (prev?.id === id ? { ...prev, rating } : prev));
+    };
+
+    const galleryProfiles = useMemo(() => {
+        const values = new Set(gallery.map(item => item.profile).filter(Boolean));
+        return Array.from(values).sort((a, b) => a.localeCompare(b));
+    }, [gallery]);
+
+    const filteredAndSortedGallery = useMemo(() => {
+        const query = gallerySearch.trim().toLowerCase();
+        const filtered = gallery.filter(item => {
+            if (galleryModeFilter !== 'all' && item.mode !== galleryModeFilter) return false;
+            if (galleryProfileFilter !== 'all' && (item.profile || '') !== galleryProfileFilter) return false;
+            if ((item.rating || 0) < galleryMinRating) return false;
+            if (!query) return true;
+
+            const haystack = [
+                item.text || '',
+                item.model || '',
+                item.profile || '',
+                item.reference_audio_name || '',
+                item.language || '',
+            ].join(' ').toLowerCase();
+            return haystack.includes(query);
+        });
+
+        const sorted = [...filtered];
+        sorted.sort((a, b) => {
+            if (gallerySort === 'oldest') return a.id - b.id;
+            if (gallerySort === 'rating_desc') return (b.rating || 0) - (a.rating || 0) || b.id - a.id;
+            if (gallerySort === 'rating_asc') return (a.rating || 0) - (b.rating || 0) || b.id - a.id;
+            if (gallerySort === 'duration_desc') return (b.duration || 0) - (a.duration || 0) || b.id - a.id;
+            if (gallerySort === 'duration_asc') return (a.duration || 0) - (b.duration || 0) || b.id - a.id;
+            return b.id - a.id;
+        });
+        return sorted;
+    }, [gallery, gallerySearch, galleryModeFilter, galleryProfileFilter, galleryMinRating, gallerySort]);
+
+    const galleryTotalPages = Math.max(1, Math.ceil(filteredAndSortedGallery.length / galleryPageSize));
+    const currentGalleryPage = Math.min(galleryPage, galleryTotalPages);
+    const paginatedGallery = useMemo(() => {
+        const start = (currentGalleryPage - 1) * galleryPageSize;
+        return filteredAndSortedGallery.slice(start, start + galleryPageSize);
+    }, [filteredAndSortedGallery, currentGalleryPage, galleryPageSize]);
+
+    useEffect(() => {
+        setGalleryPage(1);
+    }, [gallerySearch, galleryModeFilter, galleryProfileFilter, galleryMinRating, gallerySort, galleryPageSize]);
+
+    useEffect(() => {
+        if (galleryPage > galleryTotalPages) {
+            setGalleryPage(galleryTotalPages);
+        }
+    }, [galleryPage, galleryTotalPages]);
+
+    // ── Render ──────────────────────────────────────────────────────────────────
     return (
         <div className="app-container animate-fade-in">
             <Link to="/" className="btn btn-secondary" style={{ marginBottom: '2rem' }}>← Voltar</Link>
-            <div className="glass-card">
-                <div className="icon-wrapper">
-                    <Mic size={32} />
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
+                <div className="icon-wrapper" style={{ background: 'rgba(59,130,246,0.15)' }}>
+                    <Mic size={32} color="#3b82f6" />
                 </div>
-                <h2>Estúdio de Áudio</h2>
-                <p>Funcionalidades em desenvolvimento. Em breve você poderá clonar vozes e gerar narrações.</p>
+                <div>
+                    <h1 style={{ margin: 0 }}>Estúdio de Áudio</h1>
+                    <p style={{ margin: 0, color: '#94a3b8' }}>Síntese, clonagem de voz e transcrição local</p>
+                </div>
             </div>
+
+            {/* Main tab toggle */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
+                {[
+                    { key: 'txt2audio',  label: 'Texto → Áudio',    icon: <Volume2 size={16} /> },
+                    { key: 'audio2txt',  label: 'Áudio → Texto',    icon: <FileText size={16} /> },
+                    { key: 'onboarding', label: 'Onboarding de Voz', icon: <Mic size={16} /> },
+                ].map(tab => (
+                    <button
+                        key={tab.key}
+                        onClick={() => { setMainTab(tab.key); setError(''); }}
+                        style={{
+                            display: 'flex', alignItems: 'center', gap: '0.5rem',
+                            padding: '0.75rem 1.5rem', borderRadius: '12px', border: 'none',
+                            cursor: 'pointer', fontWeight: '600', fontSize: '0.95rem',
+                            background: mainTab === tab.key ? '#3b82f6' : 'rgba(255,255,255,0.08)',
+                            color: mainTab === tab.key ? 'white' : '#94a3b8',
+                            transition: 'all 0.2s',
+                        }}
+                    >
+                        {tab.icon} {tab.label}
+                    </button>
+                ))}
+            </div>
+
+            {error && (
+                <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '12px', padding: '1rem', marginBottom: '1.5rem', color: '#fca5a5' }}>
+                    ⚠️ {error}
+                </div>
+            )}
+
+            {/* ══ TAB 1: Texto → Áudio ════════════════════════════════════════════ */}
+            {mainTab === 'txt2audio' && (
+                <div className="glass-card">
+                    {/* Mode toggle */}
+                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                        {[
+                            { key: 'quick', label: 'Voz Padrão', icon: <Music size={14} /> },
+                            { key: 'clone', label: 'Clonar Voz', icon: <Mic size={14} /> },
+                        ].map(m => (
+                            <button key={m.key} onClick={() => setTtsMode(m.key)} style={{
+                                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                                padding: '0.5rem 1rem', borderRadius: '8px', border: 'none',
+                                cursor: 'pointer', fontSize: '0.85rem', fontWeight: '600',
+                                background: ttsMode === m.key ? 'rgba(59,130,246,0.3)' : 'rgba(255,255,255,0.06)',
+                                color: ttsMode === m.key ? '#93c5fd' : '#64748b',
+                            }}>{m.icon} {m.label}</button>
+                        ))}
+                    </div>
+
+                    {/* Text input */}
+                    <label style={{ display: 'block', color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.875rem' }}>Texto para narrar</label>
+                    <textarea
+                        value={inputText}
+                        onChange={e => setInputText(e.target.value)}
+                        placeholder="Digite o texto que deseja converter em áudio..."
+                        rows={5}
+                        style={{
+                            width: '100%', padding: '0.75rem', borderRadius: '10px',
+                            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                            color: 'white', fontSize: '0.95rem', resize: 'vertical',
+                            outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+                        }}
+                    />
+                    <div style={{ textAlign: 'right', color: '#475569', fontSize: '0.75rem', marginBottom: '0.75rem' }}>
+                        {inputText.length} caracteres
+                    </div>
+
+                    {/* Language */}
+                    <div style={{ display: 'grid', gridTemplateColumns: ttsMode === 'quick' ? '1fr 1fr' : '1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                        <div>
+                            <label style={{ display: 'block', color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.875rem' }}>Idioma</label>
+                            <select value={language} onChange={e => setLanguage(e.target.value)} style={{
+                                width: '100%', padding: '0.6rem', borderRadius: '8px',
+                                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                                color: 'white', fontSize: '0.9rem',
+                            }}>
+                                <option value="pt">Português BR</option>
+                                <option value="en">English</option>
+                                <option value="es">Español</option>
+                                <option value="de">Deutsch</option>
+                            </select>
+                        </div>
+                        {ttsMode === 'quick' && voices.filter(v => v.type === 'standard').length > 0 && (
+                            <div>
+                                <label style={{ display: 'block', color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+                                    Voz <span style={{ fontSize: '0.75rem', background: 'rgba(59,130,246,0.2)', color: '#93c5fd', padding: '0.1rem 0.4rem', borderRadius: '4px', marginLeft: '0.3rem' }}>Padrão</span>
+                                </label>
+                                <select value={selectedVoice} onChange={e => setSelectedVoice(e.target.value)} style={{
+                                    width: '100%', padding: '0.6rem', borderRadius: '8px',
+                                    background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                                    color: 'white', fontSize: '0.9rem',
+                                }}>
+                                    {voices.filter(v => v.type === 'standard').map(v => (
+                                        <option key={v.id} value={v.id}>{v.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Clone mode — saved profiles + new voice option */}
+                    {ttsMode === 'clone' && (
+                        <div style={{ marginBottom: '1.5rem' }}>
+                            {/* ── Saved profiles section ── */}
+                            {/* Header: label + two add-voice buttons */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                                <label style={{ color: '#94a3b8', fontSize: '0.875rem' }}>Voz Clonada</label>
+                                <div style={{ display: 'flex', gap: '0.35rem' }}>
+                                    <button
+                                        onClick={() => { setAddingVoice(!addingVoice); setSaveProfileMsg(''); }}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: '0.25rem',
+                                            padding: '0.25rem 0.6rem', borderRadius: '6px', border: 'none',
+                                            background: addingVoice ? 'rgba(168,85,247,0.3)' : 'rgba(168,85,247,0.15)',
+                                            color: '#c084fc', cursor: 'pointer', fontSize: '0.75rem', fontWeight: '600',
+                                        }}
+                                    >
+                                        <Mic size={11} /> {addingVoice ? 'Cancelar' : '+ Rápida (XTTS)'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* XTTS voice profiles dropdown */}
+                            {savedProfiles.length > 0 ? (
+                                <div style={{ position: 'relative', marginBottom: '0.75rem' }}>
+                                    <select
+                                        value={selectedProfileId}
+                                        onChange={e => { setSelectedProfileId(e.target.value); setReferenceAudio(null); setReferenceAudioName(''); }}
+                                        style={{
+                                            width: '100%', padding: '0.6rem 0.9rem', borderRadius: '8px',
+                                            background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.35)',
+                                            color: 'white', fontSize: '0.9rem',
+                                        }}
+                                    >
+                                        <option value="">— Selecionar voz —</option>
+                                        {savedProfiles.some(p => !p.is_finetuned) && (
+                                            <optgroup label="⚡ Clonagem Rápida (XTTS)">
+                                                {savedProfiles.filter(p => !p.is_finetuned).map(p => (
+                                                    <option key={p.profile_name} value={p.profile_name}>
+                                                        ⚡ {p.name} ({p.duration_seconds}s){p.cached ? ' — cached' : ''}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        )}
+                                        {savedProfiles.some(p => p.is_finetuned) && (
+                                            <optgroup label="🧠 Fine-tuned (XTTS)">
+                                                {savedProfiles.filter(p => p.is_finetuned).map(p => (
+                                                    <option key={p.profile_name} value={p.profile_name}>
+                                                        🧠 {p.name}{p.cached ? ' — loaded' : ''}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        )}
+                                    </select>
+                                    {selectedProfileId && (
+                                        <div style={{ marginTop: '0.3rem', fontSize: '0.75rem', color: '#a78bfa' }}>
+                                            {savedProfiles.find(p => p.profile_name === selectedProfileId)?.is_finetuned
+                                                ? '🧠 Modelo fine-tuned selecionado'
+                                                : '⚡ Embeddings cached após primeiro uso — geração mais rápida'}
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div style={{
+                                    padding: '0.75rem', borderRadius: '8px', marginBottom: '0.75rem',
+                                    background: 'rgba(168,85,247,0.08)', border: '1px dashed rgba(168,85,247,0.3)',
+                                    color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center',
+                                }}>
+                                    Nenhuma voz ainda. Use "+ Rápida (XTTS)" para criar um perfil de voz.
+                                </div>
+                            )}
+
+                            {/* Divider "ou" */}
+                            {savedProfiles.length > 0 && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', margin: '0.75rem 0' }}>
+                                    <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
+                                    <span style={{ color: '#475569', fontSize: '0.8rem' }}>ou enviar referência avulsa</span>
+                                    <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
+                                </div>
+                            )}
+
+                            {/* One-off reference upload */}
+                            <label style={{
+                                display: 'flex', alignItems: 'center', gap: '0.75rem',
+                                padding: '0.65rem 1rem', borderRadius: '10px', cursor: 'pointer',
+                                border: '2px dashed rgba(59,130,246,0.3)', background: 'rgba(59,130,246,0.04)',
+                                color: referenceAudioName ? '#93c5fd' : '#475569',
+                            }}>
+                                <Upload size={16} />
+                                <span style={{ fontSize: '0.85rem' }}>{referenceAudioName || 'Enviar áudio avulso (5–30s, WAV/MP3/OGG)'}</span>
+                                <input type="file" accept="audio/*" style={{ display: 'none' }} onChange={e => {
+                                    if (e.target.files[0]) {
+                                        setReferenceAudio(e.target.files[0]);
+                                        setReferenceAudioName(e.target.files[0].name);
+                                    }
+                                }} />
+                            </label>
+                            {selectedProfileId && referenceAudioName && (
+                                <div style={{ marginTop: '0.35rem', fontSize: '0.75rem', color: '#93c5fd' }}>
+                                    Perfil mantido + referência avulsa ativa nesta geração.
+                                </div>
+                            )}
+
+                            {/* Add new voice panel */}
+                            {addingVoice && (
+                                <div style={{
+                                    marginTop: '1rem', padding: '1rem', borderRadius: '12px',
+                                    background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.25)',
+                                }}>
+                                    <p style={{ color: '#c084fc', fontSize: '0.85rem', margin: '0 0 0.75rem' }}>
+                                        🎤 Salvar novo perfil de voz permanente
+                                    </p>
+                                    <input
+                                        type="text"
+                                        placeholder="Nome do perfil (ex: Miguel, Flavio, Apresentador)"
+                                        value={newVoiceName}
+                                        onChange={e => setNewVoiceName(e.target.value)}
+                                        style={{
+                                            width: '100%', padding: '0.6rem', borderRadius: '8px',
+                                            background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(168,85,247,0.3)',
+                                            color: 'white', fontSize: '0.9rem', marginBottom: '0.75rem',
+                                            outline: 'none', boxSizing: 'border-box',
+                                        }}
+                                    />
+                                    <label style={{
+                                        display: 'flex', alignItems: 'center', gap: '0.75rem',
+                                        padding: '0.65rem 1rem', borderRadius: '8px', cursor: 'pointer',
+                                        border: '1px dashed rgba(168,85,247,0.4)', background: 'rgba(168,85,247,0.06)',
+                                        color: newVoiceFileName ? '#c084fc' : '#64748b', marginBottom: '0.75rem',
+                                        fontSize: '0.85rem',
+                                    }}>
+                                        <Upload size={15} />
+                                        {newVoiceFileName || 'Áudio de referência (5–30s)'}
+                                        <input type="file" accept="audio/*" style={{ display: 'none' }} onChange={e => {
+                                            if (e.target.files[0]) {
+                                                setNewVoiceFile(e.target.files[0]);
+                                                setNewVoiceFileName(e.target.files[0].name);
+                                            }
+                                        }} />
+                                    </label>
+                                    <button
+                                        onClick={handleSaveProfile}
+                                        disabled={savingProfile || !newVoiceName.trim() || !newVoiceFile}
+                                        style={{
+                                            width: '100%', padding: '0.65rem', borderRadius: '8px', border: 'none',
+                                            background: savingProfile || !newVoiceName.trim() || !newVoiceFile
+                                                ? 'rgba(168,85,247,0.2)' : 'rgba(168,85,247,0.6)',
+                                            color: 'white', fontWeight: '700', cursor: savingProfile ? 'not-allowed' : 'pointer',
+                                            fontSize: '0.9rem', display: 'flex', alignItems: 'center',
+                                            justifyContent: 'center', gap: '0.5rem',
+                                        }}
+                                    >
+                                        {savingProfile
+                                            ? <><RefreshCw size={15} style={{ animation: 'spin 1s linear infinite' }} /> Salvando...</>
+                                            : <><Mic size={15} /> Salvar Perfil</>}
+                                    </button>
+                                    {saveProfileMsg && (
+                                        <div style={{ marginTop: '0.5rem', fontSize: '0.82rem', color: saveProfileMsg.startsWith('✅') ? '#86efac' : '#fca5a5' }}>
+                                            {saveProfileMsg}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                        </div>
+                    )}
+
+                    <button
+                        onClick={handleGenerate}
+                        disabled={loading || !inputText.trim()}
+                        style={{
+                            width: '100%', padding: '0.9rem', borderRadius: '12px', border: 'none',
+                            background: loading || !inputText.trim() ? 'rgba(59,130,246,0.3)' : '#3b82f6',
+                            color: 'white', fontSize: '1rem', fontWeight: '700', cursor: loading || !inputText.trim() ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                        }}
+                    >
+                        {loading ? <><RefreshCw size={18} style={{ animation: 'spin 1s linear infinite' }} /> Gerando áudio...</> : <><Volume2 size={18} /> Gerar Áudio</>}
+                    </button>
+
+                    {/* Audio result */}
+                    {audioResult && (
+                        <div style={{ marginTop: '1.5rem', padding: '1rem', borderRadius: '12px', background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.2)' }}>
+                            <audio controls src={audioResult.audio_base64} style={{ width: '100%', marginBottom: '0.75rem' }} />
+                            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                                <button onClick={() => handleDownloadAudio(audioResult)} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.5rem 1rem', borderRadius: '8px', border: 'none', background: 'rgba(59,130,246,0.3)', color: '#93c5fd', cursor: 'pointer', fontSize: '0.85rem' }}>
+                                    <Download size={14} /> Baixar Áudio
+                                </button>
+                                <span style={{ color: '#475569', fontSize: '0.8rem' }}>
+                                    {audioResult.duration?.toFixed(1)}s gerado • {audioResult.mode === 'clone' ? 'Voz clonada' : 'Voz padrão'}
+                                </span>
+                            </div>
+                            {renderSourceSummary(audioResult) && (
+                                <div style={{ marginTop: '0.45rem', color: '#93c5fd', fontSize: '0.78rem' }}>
+                                    {renderSourceSummary(audioResult)}
+                                </div>
+                            )}
+                            {audioResult.note && (
+                                <div style={{ marginTop: '0.45rem', color: '#94a3b8', fontSize: '0.78rem' }}>
+                                    {audioResult.note}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ══ TAB 2: Áudio → Texto ════════════════════════════════════════════ */}
+            {mainTab === 'audio2txt' && (
+                <div className="glass-card">
+                    {/* Mode toggle */}
+                    <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+                        {[
+                            { key: 'simple', label: 'Transcrição Simples', icon: <FileText size={14} /> },
+                            { key: 'speakers', label: 'Com Identificação de Speakers', icon: <Users size={14} /> },
+                        ].map(m => (
+                            <button key={m.key} onClick={() => { setTranscribeMode(m.key); setTranscriptResult(null); }} style={{
+                                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                                padding: '0.5rem 1rem', borderRadius: '8px', border: 'none',
+                                cursor: 'pointer', fontSize: '0.85rem', fontWeight: '600',
+                                background: transcribeMode === m.key ? 'rgba(59,130,246,0.3)' : 'rgba(255,255,255,0.06)',
+                                color: transcribeMode === m.key ? '#93c5fd' : '#64748b',
+                            }}>{m.icon} {m.label}</button>
+                        ))}
+                    </div>
+
+                    {transcribeMode === 'speakers' && (
+                        <div style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.2)', borderRadius: '10px', padding: '0.75rem 1rem', marginBottom: '1.5rem', color: '#fde68a', fontSize: '0.85rem' }}>
+                            ℹ️ Modo reunião: identifica cada participante. Requer HF_TOKEN configurado no .env. Áudios longos podem levar alguns minutos.
+                        </div>
+                    )}
+
+                    {/* Audio file upload */}
+                    <label style={{ display: 'block', color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.875rem' }}>Arquivo de Áudio</label>
+                    <label style={{
+                        display: 'flex', alignItems: 'center', gap: '0.75rem',
+                        padding: '1.25rem 1rem', borderRadius: '10px', cursor: 'pointer',
+                        border: '2px dashed rgba(59,130,246,0.4)', background: 'rgba(59,130,246,0.05)',
+                        color: audioFileName ? '#93c5fd' : '#475569', marginBottom: '1.5rem',
+                    }}>
+                        <Upload size={20} />
+                        <div>
+                            <div style={{ fontWeight: '600' }}>{audioFileName || 'Clique para enviar áudio'}</div>
+                            <div style={{ fontSize: '0.75rem', marginTop: '0.2rem' }}>WAV, MP3, M4A, FLAC, OGG suportados</div>
+                        </div>
+                        <input type="file" accept="audio/*,.wav,.mp3,.m4a,.flac,.ogg" style={{ display: 'none' }} onChange={e => {
+                            if (e.target.files[0]) {
+                                setAudioFile(e.target.files[0]);
+                                setAudioFileName(e.target.files[0].name);
+                                setTranscriptResult(null);
+                            }
+                        }} />
+                    </label>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: transcribeMode === 'speakers' ? '1fr 1fr' : '1fr', gap: '1rem', marginBottom: '1.5rem' }}>
+                        <div>
+                            <label style={{ display: 'block', color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.875rem' }}>Idioma do áudio</label>
+                            <select value={transLanguage} onChange={e => setTransLanguage(e.target.value)} style={{
+                                width: '100%', padding: '0.6rem', borderRadius: '8px',
+                                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                                color: 'white', fontSize: '0.9rem',
+                            }}>
+                                <option value="pt">Português BR</option>
+                                <option value="en">English</option>
+                                <option value="es">Español</option>
+                                <option value="de">Deutsch</option>
+                                <option value="auto">Auto detectar</option>
+                            </select>
+                        </div>
+                        {transcribeMode === 'speakers' && (
+                            <div>
+                                <label style={{ display: 'block', color: '#94a3b8', marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+                                    Máx. speakers: {maxSpeakers}
+                                </label>
+                                <input type="range" min={2} max={10} value={maxSpeakers} onChange={e => setMaxSpeakers(Number(e.target.value))} style={{ width: '100%', accentColor: '#3b82f6' }} />
+                                <div style={{ display: 'flex', justifyContent: 'space-between', color: '#475569', fontSize: '0.75rem' }}>
+                                    <span>2</span><span>10</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <button
+                        onClick={handleTranscribe}
+                        disabled={loading || !audioFile}
+                        style={{
+                            width: '100%', padding: '0.9rem', borderRadius: '12px', border: 'none',
+                            background: loading || !audioFile ? 'rgba(59,130,246,0.3)' : '#3b82f6',
+                            color: 'white', fontSize: '1rem', fontWeight: '700', cursor: loading || !audioFile ? 'not-allowed' : 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                        }}
+                    >
+                        {loading
+                            ? <><RefreshCw size={18} style={{ animation: 'spin 1s linear infinite' }} /> Transcrevendo... (aguarde)</>
+                            : <><FileText size={18} /> Transcrever</>}
+                    </button>
+
+                    {/* Transcript result */}
+                    {transcriptResult && (
+                        <div style={{ marginTop: '1.5rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                                <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+                                    {transcriptResult.num_speakers
+                                        ? `${transcriptResult.num_speakers} speakers • `
+                                        : ''
+                                    }
+                                    {transcriptResult.duration_audio?.toFixed(0)}s de áudio • {transcriptResult.processing_seconds?.toFixed(0)}s de processamento
+                                </div>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    <button onClick={handleCopyTranscript} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.8rem', borderRadius: '8px', border: 'none', background: 'rgba(255,255,255,0.08)', color: '#94a3b8', cursor: 'pointer', fontSize: '0.8rem' }}>
+                                        <Copy size={13} /> Copiar
+                                    </button>
+                                    <button onClick={handleDownloadTranscript} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.8rem', borderRadius: '8px', border: 'none', background: 'rgba(255,255,255,0.08)', color: '#94a3b8', cursor: 'pointer', fontSize: '0.8rem' }}>
+                                        <Download size={13} /> .txt
+                                    </button>
+                                </div>
+                            </div>
+                            <pre style={{
+                                background: 'rgba(0,0,0,0.3)', borderRadius: '10px', padding: '1rem',
+                                color: '#e2e8f0', fontSize: '0.875rem', lineHeight: '1.7',
+                                maxHeight: '400px', overflowY: 'auto', whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word', fontFamily: 'inherit', border: '1px solid rgba(255,255,255,0.06)',
+                            }}>
+                                {transcriptResult.formatted_text || transcriptResult.text}
+                            </pre>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* ══ TAB 3: Onboarding de Voz ════════════════════════════════════════ */}
+            {mainTab === 'onboarding' && <VoiceOnboarding />}
+
+            {/* ══ Gallery ══════════════════════════════════════════════════════════ */}
+            {gallery.length > 0 && mainTab !== 'onboarding' && (
+                <div style={{ marginTop: '2rem' }}>
+                    <h3 style={{ color: '#94a3b8', marginBottom: '1rem', fontSize: '1rem' }}>
+                        🎵 Sessão atual — {filteredAndSortedGallery.length} de {gallery.length} {gallery.length === 1 ? 'áudio' : 'áudios'}
+                    </h3>
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                        gap: '0.6rem',
+                        marginBottom: '0.9rem',
+                    }}>
+                        <input
+                            value={gallerySearch}
+                            onChange={e => setGallerySearch(e.target.value)}
+                            placeholder="Buscar texto, modelo, perfil, ref..."
+                            style={{
+                                width: '100%', padding: '0.5rem 0.65rem', borderRadius: '8px',
+                                background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                                color: 'white', fontSize: '0.82rem', boxSizing: 'border-box',
+                            }}
+                        />
+                        <select value={galleryModeFilter} onChange={e => setGalleryModeFilter(e.target.value)} style={{
+                            width: '100%', padding: '0.5rem 0.6rem', borderRadius: '8px',
+                            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                            color: 'white', fontSize: '0.8rem',
+                        }}>
+                            <option value="all">Modo: todos</option>
+                            <option value="clone">Modo: clone</option>
+                            <option value="quick">Modo: padrão</option>
+                        </select>
+                        <select value={galleryProfileFilter} onChange={e => setGalleryProfileFilter(e.target.value)} style={{
+                            width: '100%', padding: '0.5rem 0.6rem', borderRadius: '8px',
+                            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                            color: 'white', fontSize: '0.8rem',
+                        }}>
+                            <option value="all">Perfil: todos</option>
+                            {galleryProfiles.map(profile => (
+                                <option key={profile} value={profile}>{profile}</option>
+                            ))}
+                        </select>
+                        <select value={galleryMinRating} onChange={e => setGalleryMinRating(Number(e.target.value))} style={{
+                            width: '100%', padding: '0.5rem 0.6rem', borderRadius: '8px',
+                            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                            color: 'white', fontSize: '0.8rem',
+                        }}>
+                            <option value={0}>Nota: todas</option>
+                            <option value={1}>Nota: 1+ ★</option>
+                            <option value={2}>Nota: 2+ ★</option>
+                            <option value={3}>Nota: 3+ ★</option>
+                            <option value={4}>Nota: 4+ ★</option>
+                            <option value={5}>Nota: 5 ★</option>
+                        </select>
+                        <select value={gallerySort} onChange={e => setGallerySort(e.target.value)} style={{
+                            width: '100%', padding: '0.5rem 0.6rem', borderRadius: '8px',
+                            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                            color: 'white', fontSize: '0.8rem',
+                        }}>
+                            <option value="newest">Ordem: mais novo</option>
+                            <option value="oldest">Ordem: mais antigo</option>
+                            <option value="rating_desc">Ordem: melhor nota</option>
+                            <option value="rating_asc">Ordem: pior nota</option>
+                            <option value="duration_desc">Ordem: maior duração</option>
+                            <option value="duration_asc">Ordem: menor duração</option>
+                        </select>
+                        <select value={galleryPageSize} onChange={e => setGalleryPageSize(Number(e.target.value))} style={{
+                            width: '100%', padding: '0.5rem 0.6rem', borderRadius: '8px',
+                            background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
+                            color: 'white', fontSize: '0.8rem',
+                        }}>
+                            <option value={10}>10 / página</option>
+                            <option value={25}>25 / página</option>
+                            <option value={50}>50 / página</option>
+                        </select>
+                        <button
+                            onClick={() => {
+                                setGallerySearch('');
+                                setGalleryModeFilter('all');
+                                setGalleryProfileFilter('all');
+                                setGalleryMinRating(0);
+                                setGallerySort('newest');
+                                setGalleryPage(1);
+                            }}
+                            style={{
+                                width: '100%', padding: '0.5rem 0.6rem', borderRadius: '8px', border: 'none',
+                                background: 'rgba(59,130,246,0.2)', color: '#93c5fd', cursor: 'pointer', fontSize: '0.8rem',
+                            }}
+                        >
+                            Limpar
+                        </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                        {paginatedGallery.map(item => (
+                            <div key={item.id} style={{
+                                display: 'flex', flexDirection: 'column', gap: '0.5rem',
+                                padding: '0.75rem 1rem', borderRadius: '12px',
+                                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+                            }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span style={{ color: '#cbd5e1', fontSize: '0.875rem', flex: 1, marginRight: '1rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {item.text}...
+                                    </span>
+                                    <div style={{ display: 'flex', gap: '0.4rem', flexShrink: 0 }}>
+                                        <span style={{ color: '#475569', fontSize: '0.75rem', alignSelf: 'center' }}>
+                                            {item.mode === 'clone'
+                                                ? `🎤 ${item.profile ? item.profile : 'Clone'}`
+                                                : '🔊 TTS'} • {item.language}
+                                        </span>
+                                        <button onClick={() => handleDownloadAudio(item)} style={{ padding: '0.3rem 0.6rem', borderRadius: '6px', border: 'none', background: 'rgba(59,130,246,0.2)', color: '#93c5fd', cursor: 'pointer', fontSize: '0.75rem' }}>
+                                            <Download size={13} />
+                                        </button>
+                                        <button onClick={() => removeFromGallery(item.id)} style={{ padding: '0.3rem 0.6rem', borderRadius: '6px', border: 'none', background: 'rgba(239,68,68,0.15)', color: '#fca5a5', cursor: 'pointer', fontSize: '0.75rem' }}>
+                                            <Trash2 size={13} />
+                                        </button>
+                                    </div>
+                                </div>
+                                {renderSourceSummary(item) && (
+                                    <div style={{ color: '#93c5fd', fontSize: '0.76rem' }}>
+                                        {renderSourceSummary(item)}
+                                    </div>
+                                )}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                    <span style={{ color: '#64748b', fontSize: '0.74rem' }}>Avaliação:</span>
+                                    {[1, 2, 3, 4, 5].map(star => (
+                                        <button
+                                            key={`${item.id}_star_${star}`}
+                                            onClick={() => rateGalleryItem(item.id, star)}
+                                            title={`${star} estrela${star > 1 ? 's' : ''}`}
+                                            style={{
+                                                border: 'none',
+                                                background: 'transparent',
+                                                padding: 0,
+                                                cursor: 'pointer',
+                                                fontSize: '0.95rem',
+                                                lineHeight: 1,
+                                                color: star <= (item.rating || 0) ? '#facc15' : '#475569',
+                                            }}
+                                        >
+                                            ★
+                                        </button>
+                                    ))}
+                                    <span style={{ color: '#94a3b8', fontSize: '0.72rem', marginLeft: '0.2rem' }}>
+                                        {(item.rating || 0) > 0 ? `${item.rating}/5` : 'sem nota'}
+                                    </span>
+                                </div>
+                                <audio controls src={item.audio_base64} style={{ width: '100%', height: '32px' }} />
+                            </div>
+                        ))}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.8rem' }}>
+                        <span style={{ color: '#64748b', fontSize: '0.75rem' }}>
+                            Página {currentGalleryPage} de {galleryTotalPages}
+                        </span>
+                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                            <button
+                                onClick={() => setGalleryPage(p => Math.max(1, p - 1))}
+                                disabled={currentGalleryPage <= 1}
+                                style={{
+                                    padding: '0.35rem 0.65rem', borderRadius: '6px', border: 'none',
+                                    background: currentGalleryPage <= 1 ? 'rgba(255,255,255,0.07)' : 'rgba(59,130,246,0.2)',
+                                    color: currentGalleryPage <= 1 ? '#475569' : '#93c5fd',
+                                    cursor: currentGalleryPage <= 1 ? 'not-allowed' : 'pointer',
+                                    fontSize: '0.75rem',
+                                }}
+                            >
+                                Anterior
+                            </button>
+                            <button
+                                onClick={() => setGalleryPage(p => Math.min(galleryTotalPages, p + 1))}
+                                disabled={currentGalleryPage >= galleryTotalPages}
+                                style={{
+                                    padding: '0.35rem 0.65rem', borderRadius: '6px', border: 'none',
+                                    background: currentGalleryPage >= galleryTotalPages ? 'rgba(255,255,255,0.07)' : 'rgba(59,130,246,0.2)',
+                                    color: currentGalleryPage >= galleryTotalPages ? '#475569' : '#93c5fd',
+                                    cursor: currentGalleryPage >= galleryTotalPages ? 'not-allowed' : 'pointer',
+                                    fontSize: '0.75rem',
+                                }}
+                            >
+                                Próxima
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -1162,6 +2085,7 @@ function Projects() {
     const [activeTab, setActiveTab] = useState('downloads');
     const [projects, setProjects] = useState({ downloads: [], images: [] });
     const [loading, setLoading] = useState(true);
+    const [deletingFile, setDeletingFile] = useState('');
 
     useEffect(() => {
         fetchProjects();
@@ -1181,6 +2105,28 @@ function Projects() {
 
     const handleDownloadFile = (type, filename) => {
         window.open(`http://${window.location.hostname}:3000/api/v1/studio/file/${type}/${encodeURIComponent(filename)}`, '_blank');
+    };
+
+    const handleDeleteFile = async (type, filename) => {
+        const confirmed = window.confirm(`Excluir arquivo "${filename}"? Essa ação não pode ser desfeita.`);
+        if (!confirmed) return;
+
+        const key = `${type}:${filename}`;
+        setDeletingFile(key);
+        try {
+            const response = await fetch(`http://${window.location.hostname}:3000/api/v1/studio/file/${type}/${encodeURIComponent(filename)}`, {
+                method: 'DELETE',
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.error || data.message || 'Falha ao excluir arquivo');
+            }
+            await fetchProjects();
+        } catch (err) {
+            window.alert(`Erro ao excluir: ${err.message}`);
+        } finally {
+            setDeletingFile('');
+        }
     };
 
     const getFileUrl = (type, filename) => {
@@ -1360,6 +2306,27 @@ function Projects() {
                                                         }}
                                                     >
                                                         <FolderOpen size={16} /> Abrir
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDeleteFile('image', file.name)}
+                                                        disabled={deletingFile === `image:${file.name}`}
+                                                        style={{
+                                                            width: '100%',
+                                                            marginTop: '0.5rem',
+                                                            padding: '0.6rem',
+                                                            background: deletingFile === `image:${file.name}` ? 'rgba(239,68,68,0.2)' : 'rgba(239,68,68,0.12)',
+                                                            border: '1px solid rgba(239,68,68,0.35)',
+                                                            color: deletingFile === `image:${file.name}` ? '#fda4af' : '#fecaca',
+                                                            borderRadius: '6px',
+                                                            cursor: deletingFile === `image:${file.name}` ? 'not-allowed' : 'pointer',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            gap: '0.5rem',
+                                                            fontSize: '0.9rem'
+                                                        }}
+                                                    >
+                                                        <Trash2 size={16} /> {deletingFile === `image:${file.name}` ? 'Excluindo...' : 'Excluir'}
                                                     </button>
                                                 </div>
                                             </div>
@@ -1567,6 +2534,7 @@ function App() {
                 <Route path="/video-studio" element={<VideoStudio />} />
                 <Route path="/chat-studio" element={<ChatStudio />} />
                 <Route path="/projects" element={<Projects />} />
+                <Route path="/voice-onboarding" element={<VoiceOnboarding />} />
             </Routes>
         </Router>
     );
