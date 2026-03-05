@@ -1,11 +1,13 @@
 import { exec } from 'child_process';
-import { writeFile, unlink } from 'fs/promises';
+import { writeFile, readFile, unlink } from 'fs/promises';
 import axios from 'axios';
 import { CacheService } from '../infrastructure/cacheService.js';
 import { logger } from '../config/logger.js';
 import { AGENT_PROMPTS } from './aiosAgentPrompts.js';
 import { AGENT_SIGNATURE } from './aiosRouter.js';
 
+const AIOS_LLM_BACKEND = (process.env.AIOS_LLM_BACKEND || 'codex').toLowerCase();
+const CODEX_CLI = process.env.CODEX_CLI_PATH || 'codex';
 const CLAUDE_CLI = process.env.CLAUDE_CLI_PATH || '/usr/local/bin/claude';
 const AIOS_PROJECT_PATH = process.env.AIOS_PROJECT_PATH || '/home/flaviofagundes/aios';
 const EVOLUTION_BASE_URL = process.env.EVOLUTION_API_BASE_URL;
@@ -20,41 +22,33 @@ export class AiosService {
   }
 
   async processMessage({ message, from, agent, sessionId }) {
-    // Load session history
     const history = await this._getHistory(sessionId);
 
-    // Add user message to history
     history.push({ role: 'user', content: message, timestamp: Date.now() });
 
-    // Build prompt
     const prompt = this._buildPrompt({ agent, history, message });
 
-    // Invoke claude --print and capture response
-    const response = await this._invokeClaudeCli(prompt, sessionId);
+    const response = await this._invokeAssistant(prompt, sessionId);
 
     if (response) {
-      // Add assistant response to history
       history.push({ role: 'assistant', content: response, timestamp: Date.now() });
 
-      // Prefix response with agent signature
       const signature = AGENT_SIGNATURE[agent] || `🤖 *${agent}*`;
       const formattedResponse = `${signature}:\n\n${response}`;
 
-      // Send response via Evolution API
       await this._sendWhatsApp(from, formattedResponse);
     }
 
-    // Save updated history
     await this.cache.set(`aios:session:${sessionId}`, history.slice(-MAX_HISTORY), SESSION_TTL);
   }
 
   _buildPrompt({ agent, history, message }) {
-    const persona = AGENT_PROMPTS[agent] || AGENT_PROMPTS['dev'];
+    const persona = AGENT_PROMPTS[agent] || AGENT_PROMPTS['aios-master'] || AGENT_PROMPTS['dev'];
 
     const historyText = history.length > 1
       ? history
           .slice(0, -1)
-          .map(m => `${m.role === 'user' ? 'Usuário' : 'Assistente'}: ${m.content}`)
+          .map((m) => `${m.role === 'user' ? 'Usuário' : 'Assistente'}: ${m.content}`)
           .join('\n')
       : '';
 
@@ -65,9 +59,77 @@ export class AiosService {
     return [
       persona,
       historySection,
-      `\nMensagem recebida:`,
+      '\nMensagem recebida:',
       message,
+      '\nInstrução: responda em português do Brasil, de forma objetiva e acionável.',
     ].join('\n');
+  }
+
+  async _invokeAssistant(prompt, sessionId) {
+    if (AIOS_LLM_BACKEND === 'claude') {
+      return this._invokeClaudeCli(prompt, sessionId);
+    }
+
+    const codexResponse = await this._invokeCodexCli(prompt, sessionId);
+    if (codexResponse) {
+      return codexResponse;
+    }
+
+    logger.warn('AIOS: codex failed, falling back to claude CLI', { sessionId });
+    return this._invokeClaudeCli(prompt, sessionId);
+  }
+
+  async _invokeCodexCli(prompt, sessionId) {
+    const tmpPromptFile = `/tmp/aios_prompt_${sessionId}_${Date.now()}.txt`;
+    const tmpOutFile = `/tmp/aios_codex_out_${sessionId}_${Date.now()}.txt`;
+
+    try {
+      await writeFile(tmpPromptFile, prompt, 'utf8');
+    } catch (err) {
+      logger.error('AIOS: failed to write codex prompt file', { error: err.message, sessionId });
+      return null;
+    }
+
+    logger.info('AIOS: invoking codex CLI', { sessionId, backend: AIOS_LLM_BACKEND });
+
+    return new Promise((resolve) => {
+      const codexCmd = `${CODEX_CLI} exec --skip-git-repo-check -C "${AIOS_PROJECT_PATH}" --output-last-message "${tmpOutFile}" - < "${tmpPromptFile}"`;
+
+      exec(codexCmd, {
+        cwd: AIOS_PROJECT_PATH,
+        shell: '/bin/bash',
+        timeout: 180000,
+        env: {
+          ...process.env,
+          HOME: process.env.HOME || '/home/flaviofagundes',
+        },
+      }, async (err, _stdout, stderr) => {
+        await unlink(tmpPromptFile).catch(() => {});
+
+        if (err) {
+          logger.error('AIOS: codex CLI error', {
+            error: err.message,
+            sessionId,
+            stderr: stderr?.slice(0, 300),
+          });
+          await unlink(tmpOutFile).catch(() => {});
+          resolve(null);
+          return;
+        }
+
+        try {
+          const content = await readFile(tmpOutFile, 'utf8');
+          const response = content?.trim() || null;
+          logger.info('AIOS: codex CLI completed', { sessionId, outputLength: response?.length || 0 });
+          await unlink(tmpOutFile).catch(() => {});
+          resolve(response);
+        } catch (readErr) {
+          logger.error('AIOS: failed reading codex output file', { error: readErr.message, sessionId });
+          await unlink(tmpOutFile).catch(() => {});
+          resolve(null);
+        }
+      });
+    });
   }
 
   async _invokeClaudeCli(prompt, sessionId) {
@@ -80,7 +142,7 @@ export class AiosService {
       return null;
     }
 
-    logger.info('AIOS: invoking claude CLI', { sessionId });
+    logger.info('AIOS: invoking claude CLI', { sessionId, backend: AIOS_LLM_BACKEND });
 
     return new Promise((resolve) => {
       const claudeCmd = `${CLAUDE_CLI} --print < "${tmpFile}"`;

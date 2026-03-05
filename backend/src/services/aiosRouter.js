@@ -1,19 +1,30 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../config/logger.js';
 
-const VALID_AGENTS = ['dev', 'qa', 'architect', 'pm', 'sm', 'analyst'];
+const VALID_AGENTS = ['aios-master', 'dev', 'qa', 'architect', 'pm', 'sm', 'analyst'];
 
 const AGENT_PREFIXES = {
-  '@dev': 'dev', '@qa': 'qa', '@architect': 'architect',
-  '@pm': 'pm', '@sm': 'sm', '@analyst': 'analyst',
+  '@aios-master': 'aios-master',
+  '@dev': 'dev',
+  '@qa': 'qa',
+  '@architect': 'architect',
+  '@pm': 'pm',
+  '@sm': 'sm',
+  '@analyst': 'analyst',
 };
 
 const AGENT_NAMES = {
-  'dex': 'dev', 'quinn': 'qa', 'alex': 'architect',
-  'morgan': 'pm', 'river': 'sm', 'sam': 'analyst',
+  'orion': 'aios-master',
+  'dex': 'dev',
+  'quinn': 'qa',
+  'alex': 'architect',
+  'morgan': 'pm',
+  'river': 'sm',
+  'sam': 'analyst',
 };
 
 export const AGENT_SIGNATURE = {
+  'aios-master': '👑 *Orion (AIOS Master)*',
   dev: '👨‍💻 *Dex (Dev)*',
   qa: '🔍 *Quinn (QA)*',
   architect: '🏛️ *Alex (Architect)*',
@@ -23,9 +34,10 @@ export const AGENT_SIGNATURE = {
 };
 
 const CLASSIFICATION_PROMPT = `Classifique a intenção desta mensagem e responda com APENAS UMA PALAVRA:
-dev | qa | architect | pm | sm | analyst
+aios-master | dev | qa | architect | pm | sm | analyst
 
 Regras:
+- aios-master: perguntas gerais, orquestração, decisões amplas, múltiplos tópicos, dúvidas sem escopo técnico claro
 - dev: código, implementação, bug, endpoint, função, banco de dados, programação
 - qa: teste, qualidade, review, bug report, validação, cobertura
 - architect: arquitetura, padrão, design, escalabilidade, decisão técnica, sistema
@@ -45,36 +57,31 @@ export class AiosRouter {
   }
 
   async route(message, agentOverride = null) {
-    // 1. Payload override tem prioridade máxima
     if (agentOverride && VALID_AGENTS.includes(agentOverride)) {
       logger.info('AIOS Router: override', { agent: agentOverride });
       return { agent: agentOverride, method: 'override' };
     }
 
-    // 2. Prefix detection (@dev, @qa...)
     const byPrefix = this._detectByPrefix(message);
     if (byPrefix) {
       logger.info('AIOS Router: prefix detection', { agent: byPrefix });
       return { agent: byPrefix, method: 'prefix' };
     }
 
-    // 3. Name detection (Dex,, Quinn,...)
     const byName = this._detectByName(message);
     if (byName) {
       logger.info('AIOS Router: name detection', { agent: byName });
       return { agent: byName, method: 'name' };
     }
 
-    // 4. Auto-route via Claude classification
     const byIntent = await this._detectByIntent(message);
     if (byIntent) {
       logger.info('AIOS Router: intent classification', { agent: byIntent });
       return { agent: byIntent, method: 'auto' };
     }
 
-    // 5. Fallback
-    logger.info('AIOS Router: fallback to dev');
-    return { agent: 'dev', method: 'fallback' };
+    logger.info('AIOS Router: fallback to aios-master');
+    return { agent: 'aios-master', method: 'fallback' };
   }
 
   _detectByPrefix(message) {
@@ -88,7 +95,6 @@ export class AiosRouter {
   _detectByName(message) {
     const lower = message.toLowerCase().trim();
     for (const [name, agent] of Object.entries(AGENT_NAMES)) {
-      // Matches "Dex, " or "dex," at the start of the message
       if (lower.startsWith(`${name},`) || lower.startsWith(`${name} `)) {
         return agent;
       }
@@ -98,7 +104,7 @@ export class AiosRouter {
 
   async _detectByIntent(message) {
     if (!this.client) {
-      logger.warn('AIOS Router: Anthropic client not configured, skipping intent detection');
+      logger.info('AIOS Router: no Anthropic key configured, using local routing/fallback only');
       return null;
     }
 

@@ -57,7 +57,7 @@ function Home() {
                             <ImageIcon size={32} />
                         </div>
                         <h2>Image Studio</h2>
-                        <p>Stable Diffusion 3.5, Flux e Magic Prompts para criadores de arte e devs.</p>
+                        <p>Stable Diffusion 3.5, SDXL e Magic Prompts para criadores de arte e devs.</p>
                         <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', color: '#f472b6', fontWeight: '600', fontSize: '0.9rem' }}>
                             Gerar Arte <ArrowRight size={16} style={{ marginLeft: '8px' }} />
                         </div>
@@ -1124,20 +1124,31 @@ function ImageStudio() {
         setMagicPromptLoading(true);
         try {
             // Node Backend (:3000) -> Python (:5003) for Chat/LLM
+            const systemPrompt = `You are an elite AI prompt engineer specializing in Stable Diffusion 1.5, SDXL, and DreamShaper 8. 
+Your task is to take the user's input (often in simple Portuguese or English) and convert it into a highly detailed, professional English prompt.
+
+RULES:
+1. Translate the core concept to English if it's in Portuguese.
+2. Format as a comma-separated list of keywords and short descriptive phrases. No conversational text.
+3. Add professional photography/art modifiers: "masterpiece, best quality, highly detailed, 8k resolution, cinematic lighting, sharp focus".
+4. For Dreamshaper/SD 1.5, negative prompts are important, but you only return the POSITIVE prompt here.
+5. Emphasize medium (e.g., "digital painting", "35mm photography", "unreal engine 5 render").
+6. RETURN ONLY THE EXACT PROMPT TEXT. No explanations, no quotes around everything.`;
+
             const response = await fetch(`http://${window.location.hostname}:3000/api/v1/chat/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     messages: [
-                        { role: 'system', content: 'You are an expert Stable Diffusion prompt engineer. Optimize the user prompt for better details, lighting, and style. Return ONLY the improved prompt, nothing else.' },
+                        { role: 'system', content: systemPrompt },
                         { role: 'user', content: prompt }
                     ],
-                    model: 'qwen2.5:3b' // Use a fast default model
+                    model: 'gpt-oss:20b' // Use the smartest available model for best prompt generation
                 })
             });
             const data = await response.json();
             if (data.content) {
-                setPrompt(data.content.replace(/^"|"$/g, '')); // Remove quotes if any
+                setPrompt(data.content.trim().replace(/^"|"$/g, '')); // Remove quotes if any
             }
         } catch (err) {
             console.error('Magic Prompt failed:', err);

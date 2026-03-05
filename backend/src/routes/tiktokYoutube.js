@@ -3,8 +3,8 @@ import axios from 'axios';
 
 const router = Router();
 
-const PYTHON_TIKTOK_URL = process.env.PYTHON_TIKTOK_URL || 'http://localhost:5002';
-const PYTHON_YOUTUBE_URL = process.env.PYTHON_YOUTUBE_URL || 'http://localhost:5002';
+const PYTHON_TIKTOK_URL = process.env.PYTHON_TIKTOK_URL || process.env.PYTHON_SERVICE_URL || 'http://localhost:5004';
+const PYTHON_YOUTUBE_URL = process.env.PYTHON_YOUTUBE_URL || process.env.PYTHON_SERVICE_URL || 'http://localhost:5004';
 
 // TikTok Download
 router.post('/tiktok/download', async (req, res) => {

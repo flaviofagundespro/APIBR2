@@ -12,8 +12,8 @@ const aiosController = new AiosController();
  *     summary: Send message to AIOS agent via WhatsApp
  *     description: |
  *       Receives a message from n8n (originating from WhatsApp via Evolution API),
- *       processes it asynchronously using the specified AIOS agent (via claude --print),
- *       and sends the response directly back to the sender via the enviar-msg-whatsapp skill.
+ *       processes it asynchronously using the specified AIOS agent (via Codex CLI by default, with Claude CLI fallback),
+ *       and sends the response directly back to the sender via Evolution API.
  *       Returns 202 immediately — fire & forget pattern.
  *     tags: [AIOS]
  *     security:
@@ -38,7 +38,7 @@ const aiosController = new AiosController();
  *                 example: "5527992618345"
  *               agent:
  *                 type: string
- *                 description: Agent to use (dev, qa, architect, pm, sm, analyst). Defaults to dev.
+ *                 description: Agent to use (aios-master, dev, qa, architect, pm, sm, analyst). Defaults to aios-master.
  *                 example: "dev"
  *               session_id:
  *                 type: string

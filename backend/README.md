@@ -32,8 +32,15 @@ cd APIBR
 # Configure as variáveis de ambiente
 cp .env.example .env
 
-# Inicie com Docker
-docker-compose up -d
+# Inicie com Docker (escolha 1 perfil)
+# VPS recomendado (scraper + downloads + /api/aios)
+docker-compose --profile vps up -d apibr-cpu redis
+
+# Full (GPU-ready)
+docker-compose --profile full up -d apibr redis
+
+# API-only (sem downloads)
+docker-compose --profile api-only up -d apibr-api redis
 ```
 
 ### Método 2: Instalação Local
@@ -81,6 +88,12 @@ API_KEYS=your-api-key-1,your-api-key-2
 # Logs
 LOG_LEVEL=info
 LOG_FORMAT=json
+
+# Feature flags (modos de deploy)
+FEATURE_IMAGE_AI=true
+FEATURE_AUDIO_AI=true
+FEATURE_CHAT_AI=true
+FEATURE_VIDEO_DL=true
 ```
 
 ## 📚 Uso da API
@@ -223,17 +236,23 @@ Para captura de tela.
 
 ## 🐳 Deploy com Docker
 
-### Produção
+### Produção (perfis)
 
 ```bash
-# Build e start
-docker-compose up -d
+# VPS recomendado (scraper + downloads + /api/aios)
+docker-compose --profile vps up -d apibr-cpu redis
+docker-compose --profile vps logs -f apibr-cpu
 
-# Logs
-docker-compose logs -f apibr
+# Full (GPU-ready)
+docker-compose --profile full up -d apibr redis
+docker-compose --profile full logs -f apibr
 
-# Stop
-docker-compose down
+# API-only (sem downloads)
+docker-compose --profile api-only up -d apibr-api redis
+docker-compose --profile api-only logs -f apibr-api
+
+# Stop (use o mesmo profile ativo)
+docker-compose --profile vps down
 ```
 
 ### Desenvolvimento

@@ -1,27 +1,22 @@
-import { logger } from "../config/logger.js";
-import { triggerN8nWorkflow } from "../services/n8n_integration.js";
+import { logger } from '../config/logger.js';
+import { triggerN8nWorkflow } from '../services/n8n_integration.js';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const STORAGE_ROOT = process.env.APIBR2_STORAGE_ROOT || path.resolve(process.cwd(), 'storage');
+const DOWNLOADS_DIR = process.env.DOWNLOADS_DIR || path.join(STORAGE_ROOT, 'downloads');
+const IMAGES_DIR = process.env.IMAGES_DIR || path.join(STORAGE_ROOT, 'generated_images');
 
-// Move up from src/controllers to backend/ to root APIBR2/
-const PROJECT_ROOT = path.resolve(__dirname, '../../../');
-const DOWNLOADS_DIR = path.join(PROJECT_ROOT, 'integrations/downloads');
-const IMAGES_DIR = path.join(PROJECT_ROOT, 'integrations/generated_images');
-
-// Ensure directories exist
+// Ensure local storage directories exist (container-safe and host-safe)
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 if (!fs.existsSync(IMAGES_DIR)) fs.mkdirSync(IMAGES_DIR, { recursive: true });
 
 export const createProject = async (req, res, next) => {
   try {
     // Placeholder implementation to create a studio project
-    res.status(200).json({ message: "Project created." });
+    res.status(200).json({ message: 'Project created.' });
   } catch (error) {
-    logger.error("Error creating project:", error);
+    logger.error('Error creating project:', error);
     next(error);
   }
 };
@@ -31,10 +26,10 @@ export const generateContent = async (req, res, next) => {
     // Placeholder implementation to orchestrate studio content
     const { contentType, data } = req.body;
     // Example of how to trigger an n8n workflow with job metadata
-    await triggerN8nWorkflow("APIBR Studio", { contentType, data });
-    res.status(200).json({ message: "Content generation initiated and N8n workflow triggered." });
+    await triggerN8nWorkflow('APIBR Studio', { contentType, data });
+    res.status(200).json({ message: 'Content generation initiated and N8n workflow triggered.' });
   } catch (error) {
-    logger.error("Error generating content:", error);
+    logger.error('Error generating content:', error);
     next(error);
   }
 };
@@ -68,11 +63,11 @@ export const getProjects = async (req, res, next) => {
 
       return {
         name: file,
-        path: path.join('integrations/downloads', file),
+        path: path.join('storage', 'downloads', file),
         created_at: stats.birthtime,
         size: stats.size,
         type: 'download',
-        thumbnail: thumbnail
+        thumbnail
       };
     }).sort((a, b) => b.created_at - a.created_at);
 
@@ -81,7 +76,7 @@ export const getProjects = async (req, res, next) => {
       const stats = fs.statSync(path.join(IMAGES_DIR, file));
       return {
         name: file,
-        path: path.join('integrations/generated_images', file),
+        path: path.join('storage', 'generated_images', file),
         created_at: stats.birthtime,
         size: stats.size,
         type: 'image'
@@ -94,7 +89,7 @@ export const getProjects = async (req, res, next) => {
       images
     });
   } catch (error) {
-    logger.error("Error getting projects:", error);
+    logger.error('Error getting projects:', error);
     next(error);
   }
 };
@@ -120,7 +115,7 @@ export const getFile = async (req, res, next) => {
 
     if (fs.existsSync(filepath)) {
       logger.info(`Serving file (download): ${filepath}`);
-      res.download(filepath, filename || path.basename(filepath), (err) => {
+      res.download(filepath, filename || path.basename(filepath), err => {
         if (err) {
           logger.error('Error sending file:', err);
           if (!res.headersSent) {
@@ -129,7 +124,7 @@ export const getFile = async (req, res, next) => {
         }
       });
     } else {
-      logger.warning(`File not found: ${filepath}`);
+      logger.warn(`File not found: ${filepath}`);
       res.status(404).json({ error: 'File not found' });
     }
   } catch (error) {
@@ -173,5 +168,3 @@ export const deleteFile = async (req, res, next) => {
     next(error);
   }
 };
-
-

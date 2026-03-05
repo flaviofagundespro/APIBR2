@@ -2,7 +2,7 @@ import { Router } from 'express';
 import axios from 'axios';
 
 const router = Router();
-const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:5002';
+const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:5004';
 
 // Facebook Download
 router.post('/facebook/download', async (req, res) => {

@@ -1,13 +1,37 @@
 version: '3.8'
 
+x-apibr-common: &apibr-common
+  build:
+    context: .
+    target: production
+  ports:
+    - "3000:3000"
+  environment:
+    - NODE_ENV=production
+    - PORT=3000
+    - REDIS_URL=redis://redis:6379
+    - BROWSER_POOL_SIZE=3
+    - BROWSER_HEADLESS=true
+    - CACHE_TTL=3600
+    - RATE_LIMIT_WINDOW=900000
+    - RATE_LIMIT_MAX=100
+    - LOG_LEVEL=info
+    - LOG_FORMAT=json
+    - API_KEYS=${API_KEYS:-dev-key-1}
+  depends_on:
+    - redis
+  volumes:
+    - ./logs:/app/logs
+  restart: unless-stopped
+  networks:
+    - apibr-network
+
 services:
-  # Main API service
+  # Full mode (GPU-ready / all capabilities enabled)
   apibr:
-    build:
-      context: .
-      target: production
-    ports:
-      - "3000:3000"
+    <<: *apibr-common
+    profiles:
+      - full
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -19,10 +43,74 @@ services:
       - RATE_LIMIT_MAX=100
       - LOG_LEVEL=info
       - LOG_FORMAT=json
+      - API_KEYS=${API_KEYS:-dev-key-1}
+      - FEATURE_IMAGE_AI=true
+      - FEATURE_AUDIO_AI=true
+      - FEATURE_CHAT_AI=true
+      - FEATURE_VIDEO_DL=true
+
+  # VPS mode (scraping + downloader + aios; image/audio/chat disabled)
+  apibr-cpu:
+    <<: *apibr-common
+    profiles:
+      - cpu-only
+      - vps
     depends_on:
       - redis
+      - apibr-downloader
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - REDIS_URL=redis://redis:6379
+      - BROWSER_POOL_SIZE=3
+      - BROWSER_HEADLESS=true
+      - CACHE_TTL=3600
+      - RATE_LIMIT_WINDOW=900000
+      - RATE_LIMIT_MAX=100
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - API_KEYS=${API_KEYS:-dev-key-1}
+      - FEATURE_IMAGE_AI=false
+      - FEATURE_AUDIO_AI=false
+      - FEATURE_CHAT_AI=false
+      - FEATURE_VIDEO_DL=true
+      - PYTHON_INSTAGRAM_URL=http://apibr-downloader:5004
+      - PYTHON_SERVICE_URL=http://apibr-downloader:5004
+
+  # API-only mode (lean VPS: disable heavy AI/download modules)
+  apibr-api:
+    <<: *apibr-common
+    profiles:
+      - api-only
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - REDIS_URL=redis://redis:6379
+      - BROWSER_POOL_SIZE=3
+      - BROWSER_HEADLESS=true
+      - CACHE_TTL=3600
+      - RATE_LIMIT_WINDOW=900000
+      - RATE_LIMIT_MAX=100
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      - API_KEYS=${API_KEYS:-dev-key-1}
+      - FEATURE_IMAGE_AI=false
+      - FEATURE_AUDIO_AI=false
+      - FEATURE_CHAT_AI=false
+      - FEATURE_VIDEO_DL=false
+
+  # Downloader worker (TikTok/YouTube/Instagram/Facebook/Universal)
+  apibr-downloader:
+    image: python:3.10-slim
+    profiles:
+      - cpu-only
+      - vps
+    working_dir: /worker
+    command: >
+      sh -lc "pip install --no-cache-dir fastapi uvicorn yt-dlp requests pydantic &&
+      INSTAGRAM_SERVER_PORT=5004 python instagram_server.py"
     volumes:
-      - ./logs:/app/logs
+      - ../integrations:/worker
     restart: unless-stopped
     networks:
       - apibr-network
@@ -53,6 +141,10 @@ services:
       - BROWSER_POOL_SIZE=2
       - BROWSER_HEADLESS=true
       - LOG_LEVEL=debug
+      - FEATURE_IMAGE_AI=true
+      - FEATURE_AUDIO_AI=true
+      - FEATURE_CHAT_AI=true
+      - FEATURE_VIDEO_DL=true
     depends_on:
       - redis
     volumes:
@@ -108,4 +200,3 @@ volumes:
 networks:
   apibr-network:
     driver: bridge
-
