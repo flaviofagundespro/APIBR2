@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """
-APIBR2 - Ultra Optimized Image Generation Server v2.1
+APIBR2 - Ultra Optimized Image Generation Server v2.2
 High-throughput FastAPI service with aggressive memory management strategies
 Originally tuned for AMD Radeon RX 6750 XT, but works on CPU/GPU fallbacks
 """
+
+import os
+import sys
+
+# ROCm stability for RX 6750 XT (gfx1031 → gfx1030 override) — must be set BEFORE torch
+os.environ.setdefault("HSA_OVERRIDE_GFX_VERSION", "10.3.0")
+os.environ.setdefault("PYTORCH_ROCM_ARCH", "gfx1030")
+os.environ.setdefault("PYTORCH_TUNABLEOP_ENABLED", "0")
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -13,7 +21,6 @@ from pathlib import Path
 import torch
 import uuid
 import time
-import os
 import base64
 import logging
 import gc
@@ -23,7 +30,6 @@ from typing import Optional, List
 from fastapi import File, UploadFile, Form
 from PIL import Image
 import io
-import sys
 
 # Force PyTorch to use every CPU core (Ryzen 9 7900X = 12c/24t on the target host)
 num_threads = os.cpu_count() or 12  # Fallback to 12 threads if detection fails
@@ -54,7 +60,26 @@ os.environ['NUMEXPR_NUM_THREADS'] = str(num_threads)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="APIBR2 Ultra Optimized Generator v2.1", version="2.1.0")
+app = FastAPI(title="APIBR2 Ultra Optimized Generator v2.2", version="2.2.0")
+
+
+def log_mem(tag: str = ""):
+    """Dump RAM + VRAM usage to the log so crash context is visible in stdout."""
+    vm = psutil.virtual_memory()
+    ram_used = vm.used / 1024**3
+    ram_total = vm.total / 1024**3
+    ram_pct = vm.percent
+    vram_info = ""
+    if torch.cuda.is_available():
+        vram_used = torch.cuda.memory_allocated() / 1024**3
+        vram_reserved = torch.cuda.memory_reserved() / 1024**3
+        try:
+            vram_total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        except Exception:
+            vram_total = 0
+        vram_info = f" | VRAM {vram_used:.2f}/{vram_total:.2f}GB (reserved {vram_reserved:.2f}GB)"
+    label = f"[{tag}] " if tag else ""
+    logger.info(f"💾 {label}RAM {ram_used:.2f}/{ram_total:.2f}GB ({ram_pct}%){vram_info}")
 
 # Allow any frontend to call this service; it is shielded by reverse proxy auth
 app.add_middleware(
@@ -264,7 +289,24 @@ def get_model_config(model_name, device="cpu"):
             'size': '512x768',
             'scheduler': 'dpm++',
             'memory_efficient': True
-        }
+        },
+        # FLUX.1 uses Flow Matching — no classifier-free guidance, no traditional scheduler
+        'black-forest-labs/FLUX.1-schnell': {
+            'steps': 4,
+            'guidance_scale': 0.0,
+            'size': '1024x1024',
+            'scheduler': 'none',
+            'memory_efficient': True,
+            'is_flux': True
+        },
+        'black-forest-labs/FLUX.1-dev': {
+            'steps': 20,
+            'guidance_scale': 3.5,
+            'size': '1024x1024',
+            'scheduler': 'none',
+            'memory_efficient': True,
+            'is_flux': True
+        },
     }
     return configs.get(model_name, configs['runwayml/stable-diffusion-v1-5'])
 
@@ -281,104 +323,129 @@ def get_pipe(model_name, requested_device="auto"):
         'openjourney': 'prompthero/openjourney',
         'anything-v3': 'Linaqruf/anything-v3.0',
         'realistic-vision': 'SG161222/Realistic_Vision_V5.1_noVAE',
-        'epic-realism': 'emilianJR/epiCRealism'
+        'epic-realism': 'emilianJR/epiCRealism',
+        'flux-schnell': 'black-forest-labs/FLUX.1-schnell',
+        'flux': 'black-forest-labs/FLUX.1-schnell',
+        'flux-dev': 'black-forest-labs/FLUX.1-dev',
     }
-    
+
     full_model_name = model_mapping.get(model_name, model_name)
-    
+    is_flux = "FLUX" in full_model_name or "flux" in full_model_name.lower()
+
     # Include device in cache key to support switching
     cache_key = f"{full_model_name}@{device}"
-    
+
     if cache_key not in pipes:
         logger.info(f"Loading model: {full_model_name} on {device} (requested: {model_name})")
         try:
-            
-            # --- 2. Standard SD/SDXL Handling ---
+            # FLUX uses float16 on CUDA/ROCm — bfloat16 is unreliable on RDNA2 (gfx1031)
             if device == "dml":
                 torch_dtype = torch.float32
             elif device == "cuda":
                 torch_dtype = torch.float16
             else:
                 torch_dtype = torch.float32
-            
-            logger.info(f"Using device: {device}, dtype: {torch_dtype}")
-            
-            from diffusers import StableDiffusionPipeline
-            
-            # Determine if we should apply Long Prompt Weighting (LPW)
-            # Only for SD 1.5 based models. SDXL handles text differently (dual encoders).
-            is_sdxl = "sdxl" in full_model_name.lower()
-            custom_pipe_arg = None
-            
-            if not is_sdxl:
-                custom_pipe_arg = "lpw_stable_diffusion"
-                logger.info("Enabling Long Prompt Weighting (LPW) for SD 1.5 model")
-            else:
-                logger.info("SDXL detected - skipping LPW (using native dual-encoder handling)")
 
-            pipes[cache_key] = StableDiffusionPipeline.from_pretrained(
-                full_model_name, 
-                torch_dtype=torch_dtype,
-                safety_checker=None,  # Disable safety checker for throughput gains
-                requires_safety_checker=False,
-                token=os.getenv("HUGGINGFACE_HUB_TOKEN"), # Updated from use_auth_token
-                custom_pipeline=custom_pipe_arg
-            )
-            
-            # Apply Device-Specific Optimizations
-            if device == "dml":
-                try:
-                    pipes[cache_key] = pipes[cache_key].to("dml")
-                    logger.info("Using DirectML device: dml")
-                except Exception as e:
-                    logger.warning(f"Could not use DirectML with .to('dml'): {e}")
-                    try:
-                        import torch_directml
-                        dml_device = torch_directml.device()
-                        pipes[cache_key] = pipes[cache_key].to(dml_device)
-                        logger.info(f"Using DirectML device: {dml_device}")
-                    except Exception as e2:
-                        logger.warning(f"Could not use DirectML, falling back to CPU: {e2}")
-                        pipes[cache_key] = pipes[cache_key].to("cpu")
-                        device = "cpu"
-                
-                if device == "dml":
-                    pipes[cache_key].enable_attention_slicing(1)
-                    pipes[cache_key].enable_vae_slicing()
-                    logger.info("Applied AMD GPU optimizations (DirectML)")
-                    
-            elif device == "cuda":
-                pipes[cache_key] = pipes[cache_key].to("cuda")
-                pipes[cache_key].enable_attention_slicing()
-                pipes[cache_key].enable_vae_slicing()
-                try:
-                    pipes[cache_key].enable_xformers_memory_efficient_attention()
-                    logger.info("Applied NVIDIA GPU optimizations (with xformers)")
-                except:
-                    logger.info("Applied NVIDIA GPU optimizations (without xformers)")
-                    
+            logger.info(f"Using device: {device}, dtype: {torch_dtype}")
+
+            if is_flux:
+                from diffusers import FluxPipeline
+                logger.info(f"FLUX detected — loading FluxPipeline (float16 for ROCm safety)")
+                log_mem("antes from_pretrained FLUX")
+                t0 = time.time()
+                pipes[cache_key] = FluxPipeline.from_pretrained(
+                    full_model_name,
+                    torch_dtype=torch_dtype,
+                    token=os.getenv("HUGGINGFACE_HUB_TOKEN"),
+                )
+                logger.info(f"FLUX from_pretrained OK — {time.time()-t0:.1f}s")
+                log_mem("depois from_pretrained FLUX")
+                if device == "cuda":
+                    logger.info("FLUX: habilitando sequential_cpu_offload...")
+                    pipes[cache_key].enable_sequential_cpu_offload()
+                    logger.info("FLUX: sequential_cpu_offload ativo")
+                    log_mem("depois sequential_cpu_offload")
+                else:
+                    logger.info("FLUX: habilitando model_cpu_offload (CPU path)...")
+                    pipes[cache_key].enable_model_cpu_offload()
+                    logger.info("FLUX: model_cpu_offload ativo")
+                    log_mem("depois model_cpu_offload")
             else:
-                pipes[cache_key] = pipes[cache_key].to("cpu")
-                pipes[cache_key].enable_attention_slicing()
-                pipes[cache_key].enable_vae_slicing()
-                logger.info("Applied CPU optimizations (standard mode)")
-            
-            # Apply Scheduler Configuration
-            model_config = get_model_config(full_model_name, device)
-            pipes[cache_key] = get_scheduler(
-                pipes[cache_key], 
-                model_config['scheduler'],
-                device
-            )
-            
+                # --- Standard SD/SDXL Handling ---
+                from diffusers import StableDiffusionPipeline
+
+                is_sdxl = "sdxl" in full_model_name.lower()
+                custom_pipe_arg = None
+
+                if not is_sdxl:
+                    custom_pipe_arg = "lpw_stable_diffusion"
+                    logger.info("Enabling Long Prompt Weighting (LPW) for SD 1.5 model")
+                else:
+                    logger.info("SDXL detected - skipping LPW (using native dual-encoder handling)")
+
+                pipes[cache_key] = StableDiffusionPipeline.from_pretrained(
+                    full_model_name,
+                    torch_dtype=torch_dtype,
+                    safety_checker=None,
+                    requires_safety_checker=False,
+                    token=os.getenv("HUGGINGFACE_HUB_TOKEN"),
+                    custom_pipeline=custom_pipe_arg
+                )
+
+                # Apply Device-Specific Optimizations
+                if device == "dml":
+                    try:
+                        pipes[cache_key] = pipes[cache_key].to("dml")
+                        logger.info("Using DirectML device: dml")
+                    except Exception as e:
+                        logger.warning(f"Could not use DirectML with .to('dml'): {e}")
+                        try:
+                            import torch_directml
+                            dml_device = torch_directml.device()
+                            pipes[cache_key] = pipes[cache_key].to(dml_device)
+                            logger.info(f"Using DirectML device: {dml_device}")
+                        except Exception as e2:
+                            logger.warning(f"Could not use DirectML, falling back to CPU: {e2}")
+                            pipes[cache_key] = pipes[cache_key].to("cpu")
+                            device = "cpu"
+
+                    if device == "dml":
+                        pipes[cache_key].enable_attention_slicing(1)
+                        pipes[cache_key].enable_vae_slicing()
+                        logger.info("Applied AMD GPU optimizations (DirectML)")
+
+                elif device == "cuda":
+                    pipes[cache_key] = pipes[cache_key].to("cuda")
+                    pipes[cache_key].enable_attention_slicing()
+                    pipes[cache_key].enable_vae_slicing()
+                    try:
+                        pipes[cache_key].enable_xformers_memory_efficient_attention()
+                        logger.info("Applied NVIDIA GPU optimizations (with xformers)")
+                    except:
+                        logger.info("Applied NVIDIA GPU optimizations (without xformers)")
+
+                else:
+                    pipes[cache_key] = pipes[cache_key].to("cpu")
+                    pipes[cache_key].enable_attention_slicing()
+                    pipes[cache_key].enable_vae_slicing()
+                    logger.info("Applied CPU optimizations (standard mode)")
+
+                # Apply Scheduler Configuration (not used by FLUX)
+                model_config = get_model_config(full_model_name, device)
+                pipes[cache_key] = get_scheduler(
+                    pipes[cache_key],
+                    model_config['scheduler'],
+                    device
+                )
+
             logger.info(f"✅ Model {full_model_name} loaded successfully on {device}")
-            
+
         except Exception as e:
             import traceback
             traceback_str = traceback.format_exc()
             logger.error(f"❌ Error loading model {full_model_name}: {e}\n{traceback_str}")
             raise HTTPException(status_code=500, detail=f"Error loading model: {str(e)}")
-    
+
     return pipes[cache_key]
 
 def get_img2img_pipe(model_name):
@@ -500,25 +567,34 @@ def generate_image(req: ImageRequest):
             req.steps = 25
         
         
+        model_name_lower = req.model.lower()
+        is_flux_request = (
+            "flux" in model_name_lower
+            or req.model.startswith("black-forest-labs/FLUX")
+        )
+
         pipe = get_pipe(req.model, req.device)
-        
-        if req.scheduler != "auto":
+
+        if not is_flux_request and req.scheduler != "auto":
             pipe = get_scheduler(pipe, req.scheduler, current_device, req.model)
-        
+
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        
-        if current_device == "dml":
+
+        # FLUX native resolution is 1024; SD models cap lower to fit in VRAM
+        if is_flux_request:
+            max_size = 1024
+        elif current_device == "dml":
             max_size = 512
         elif current_device == "cuda":
             max_size = 768
         else:
-            max_size = 640  # CPU can stretch a bit further than DirectML
-        
+            max_size = 640
+
         original_width = req.width
         original_height = req.height
-        
+
         if req.width > max_size or req.height > max_size:
             logger.warning(f"Size {req.width}x{req.height} exceeds max {max_size}x{max_size}")
             if req.width > req.height:
@@ -527,54 +603,96 @@ def generate_image(req: ImageRequest):
             else:
                 req.height = max_size
                 req.width = int((req.width / original_height) * max_size)
-        
-        req.width = (req.width // 8) * 8
-        req.height = (req.height // 8) * 8
-        
+
+        # FLUX requires multiples of 16; SD requires multiples of 8
+        align = 16 if is_flux_request else 8
+        req.width = (req.width // align) * align
+        req.height = (req.height // align) * align
         req.width = max(req.width, 256)
         req.height = max(req.height, 256)
-        
+
         logger.info(f"📐 Size: {req.width}x{req.height} | Steps: {req.steps} | Device: {current_device}")
-        
+
         if current_device == "dml":
-            estimated_time = req.steps * 3  # Roughly 3s per step on DirectML
+            estimated_time = req.steps * 3
             logger.warning(f"⏱️ DirectML: Estimated time ~{estimated_time}s")
         elif current_device == "cpu":
-            estimated_time = req.steps * 2  # Around 2s per step on the Ryzen 9 7900X
+            estimated_time = req.steps * 2
             logger.info(f"⏱️ CPU: Estimated time ~{estimated_time}s")
         else:
-            estimated_time = req.steps * 0.5  # CUDA stacks can hit ~0.5s per step
+            estimated_time = req.steps * (2 if is_flux_request else 0.5)
             logger.info(f"⏱️ GPU: Estimated time ~{estimated_time}s")
-        
-        generator = None
-        if req.seed is not None:
-             logger.info(f"🌱 Using seed: {req.seed}")
-             generator = torch.Generator(device=current_device).manual_seed(req.seed)
+
+        if req.seed is None:
+            req.seed = torch.randint(0, 2**32 - 1, (1,)).item()
+            logger.info(f"🎲 Random seed: {req.seed}")
         else:
-             req.seed = torch.randint(0, 2**32 - 1, (1,)).item()
-             generator = torch.Generator(device=current_device).manual_seed(req.seed)
-             logger.info(f"🎲 Random seed: {req.seed}")
-        
-        try:
-            guidance = req.guidance_scale
-            if "turbo" in req.model.lower():
-                guidance = 0.0
-            
-            result = pipe(
-                req.prompt,
-                num_inference_steps=req.steps,
-                guidance_scale=guidance,
-                height=req.height,
-                width=req.width,
-                generator=generator
+            logger.info(f"🌱 Using seed: {req.seed}")
+
+        # FLUX uses CPU generator (sequential offload moves tensors off GPU)
+        gen_device = "cpu" if is_flux_request else current_device
+        generator = torch.Generator(device=gen_device).manual_seed(req.seed)
+
+        log_mem("antes inferência")
+        logger.info(f"🚀 Iniciando inferência | modelo={req.model} steps={req.steps} size={req.width}x{req.height} device={current_device}")
+        t_infer_start = time.time()
+
+        def _flux_step_callback(pipe_cb, step_index, timestep, callback_kwargs):
+            elapsed = time.time() - t_infer_start
+            vm = psutil.virtual_memory()
+            vram_str = ""
+            if torch.cuda.is_available():
+                vram_used = torch.cuda.memory_allocated() / 1024**3
+                vram_reserved = torch.cuda.memory_reserved() / 1024**3
+                vram_str = f" | VRAM alloc={vram_used:.2f}GB res={vram_reserved:.2f}GB"
+            logger.info(
+                f"🔄 Step {step_index+1}/{req.steps} | {elapsed:.1f}s | "
+                f"RAM {vm.used/1024**3:.2f}GB ({vm.percent}%){vram_str}"
             )
-            
+            return callback_kwargs
+
+        try:
+            if is_flux_request:
+                model_cfg = get_model_config(req.model, current_device)
+                guidance = model_cfg.get('guidance_scale', 0.0)
+                num_steps = req.steps if req.steps != 10 else model_cfg['steps']
+                logger.info(f"FLUX params — steps={num_steps} guidance={guidance} max_seq=256")
+                log_mem("FLUX pré-pipe()")
+                result = pipe(
+                    req.prompt,
+                    num_inference_steps=num_steps,
+                    guidance_scale=guidance,
+                    height=req.height,
+                    width=req.width,
+                    generator=generator,
+                    max_sequence_length=256,
+                    callback_on_step_end=_flux_step_callback,
+                )
+                logger.info(f"✅ FLUX pipe() concluído em {time.time()-t_infer_start:.1f}s")
+                log_mem("FLUX pós-pipe()")
+            else:
+                guidance = req.guidance_scale
+                if "turbo" in req.model.lower():
+                    guidance = 0.0
+
+                result = pipe(
+                    req.prompt,
+                    num_inference_steps=req.steps,
+                    guidance_scale=guidance,
+                    height=req.height,
+                    width=req.width,
+                    generator=generator
+                )
+
         except Exception as gen_error:
+            elapsed_err = time.time() - t_infer_start
+            logger.error(f"💥 Exceção na inferência após {elapsed_err:.1f}s: {gen_error}")
+            log_mem("exceção inferência")
             error_str = str(gen_error).lower()
-            
+
             if "memory" in error_str or "not enough" in error_str or "allocate" in error_str:
                 logger.warning(f"⚠️ Memory error: {gen_error}")
-                
+
                 if req.width > 512 or req.height > 512:
                     logger.info("Trying reduced size 512x512...")
                     req.width = 512
@@ -610,7 +728,7 @@ def generate_image(req: ImageRequest):
                         width=req.width
                     )
                     logger.info("✅ Generation completed on CPU")
-                    
+
             elif "dml" in error_str or "privateuseone" in error_str:
                 logger.warning(f"⚠️ DirectML error: {gen_error}")
                 logger.info("Falling back to CPU...")
@@ -832,6 +950,24 @@ def list_models():
                 "recommended_scheduler": "dpm++",
                 "recommended_size": "512x768",
                 "performance_512x512": perf_512
+            },
+            "black-forest-labs/FLUX.1-schnell": {
+                "name": "FLUX.1 Schnell",
+                "alias": ["flux", "flux-schnell"],
+                "description": "State-of-the-art open-source model (Apache 2.0). Superior quality, excellent prompt following. 4 steps.",
+                "recommended_steps": 4,
+                "recommended_scheduler": "none (Flow Matching built-in)",
+                "recommended_size": "1024x1024",
+                "note": "ROCm: float16 + sequential_cpu_offload para caber em 12GB VRAM"
+            },
+            "black-forest-labs/FLUX.1-dev": {
+                "name": "FLUX.1 Dev",
+                "alias": ["flux-dev"],
+                "description": "Guidance-distilled, melhor qualidade que schnell. Licença não-comercial.",
+                "recommended_steps": 20,
+                "recommended_scheduler": "none (Flow Matching built-in)",
+                "recommended_size": "1024x1024",
+                "note": "Requer aceitar licença em huggingface.co/black-forest-labs/FLUX.1-dev"
             }
         },
         "schedulers": {
