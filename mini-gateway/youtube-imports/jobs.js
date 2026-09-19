@@ -8,7 +8,7 @@ const { ImportError, fail, safeCode, UUID, MAX_BYTES, checkAbort } = require('./
 const { extract, processIdentity, killOwnedProcess } = require('./extractor');
 const { obtainMedia } = require('./media');
 
-const OWNED_FILES = ['part-0.mp4', 'part-1.mp4', 'artifact.pending.mp4', 'artifact.mp4'];
+const OWNED_FILES = ['part-0.mp4', 'part-1.mp4', 'artifact.pending.mp4', 'artifact.mp4', 'cookies.txt'];
 const WORKING = new Set(['extracting', 'downloading']);
 const TERMINAL = new Set(['ready', 'failed', 'expired']);
 async function syncDirectory(dir) {
@@ -102,8 +102,12 @@ async function createJobService({ root = path.join(__dirname, '../tmp/youtube-im
     serial = result.catch(() => {});
     return result;
   };
+  function durableJob(job) {
+    const { youtube_cookie: _youtubeCookie, ...durable } = job;
+    return durable;
+  }
   async function write(job) {
-    try { await atomicJSON(dirOf(job.request_id), 'journal.json', job); }
+    try { await atomicJSON(dirOf(job.request_id), 'journal.json', durableJob(job)); }
     catch (error) { unhealthy = true; throw error; }
     jobs.set(job.request_id, job);
     return job;
@@ -157,6 +161,11 @@ async function createJobService({ root = path.join(__dirname, '../tmp/youtube-im
       });
       if (!job) break;
       if (job.skipped) continue;
+      if (job.youtube_auth_required && !job.youtube_cookie) {
+        await transaction(() => transition(job.request_id, { status: 'failed', error: { code: 'source_requires_auth' } }));
+        await cleanup(job.request_id);
+        continue;
+      }
       const deadline = new AbortController();
       const timeout = setTimeout(() => deadline.abort(new ImportError('time_limit')), jobMs);
       timeout.unref();
@@ -164,7 +173,9 @@ async function createJobService({ root = path.join(__dirname, '../tmp/youtube-im
       try {
         const options = { ...pipelineOptions, dir: dirOf(job.request_id), signal,
           onProcess: identity => transaction(() => transition(job.request_id, { process: identity })) };
-        const selection = await extractVideo(job.video_id, options);
+        await cleanup(job.request_id, false);
+        const extractOptions = job.youtube_cookie ? { ...options, youtubeCookie: job.youtube_cookie } : options;
+        const selection = await extractVideo(job.video_id, extractOptions);
         checkAbort(signal);
         await transaction(() => transition(job.request_id, { status: 'downloading', process: null }));
         const artifact = await downloadMedia(selection, options);
@@ -179,7 +190,10 @@ async function createJobService({ root = path.join(__dirname, '../tmp/youtube-im
         await transaction(() => transition(job.request_id, { status: 'failed', artifact: null,
           error: { code: signal.aborted ? safeCode(signal.reason) : safeCode(error) }, process: null }));
         await cleanup(job.request_id);
-      } finally { clearTimeout(timeout); active = null; }
+      } finally {
+        delete jobs.get(job.request_id)?.youtube_cookie;
+        clearTimeout(timeout); active = null;
+      }
     }
   }
   function wake() {
@@ -219,6 +233,11 @@ async function createJobService({ root = path.join(__dirname, '../tmp/youtube-im
         if (existing) {
           scoped(payload.request_id, payload.workspace_id, payload.perfil_id);
           if (existing.video_id !== payload.video_id || existing.policy !== payload.policy) fail('conflict', 409);
+          if (existing.status === 'queued' && existing.youtube_auth_required && !existing.youtube_cookie && payload.youtube_cookie) {
+            existing.youtube_cookie = payload.youtube_cookie;
+            existing.youtube_session_revision = payload.youtube_session_revision;
+            await write(existing);
+          }
           return { created: false, job: envelope(await expire(existing)) };
         }
         if (jobs.size >= maxJournals || await diskUsage(root) + 100_000_000 > maxDiskBytes) fail('unavailable', 503);
@@ -226,8 +245,15 @@ async function createJobService({ root = path.join(__dirname, '../tmp/youtube-im
         if (occupied >= queueLimit + 1) fail('queue_full', 429);
         await fs.mkdir(dirOf(payload.request_id), { mode: 0o700 });
         const created = iso();
-        const job = { ...payload, status: 'queued', created_at: created, updated_at: created,
-          expires_at: null, artifact: null, error: null, process: null, acknowledged_sha256: null };
+        const job = {
+          request_id: payload.request_id, workspace_id: payload.workspace_id, perfil_id: payload.perfil_id,
+          video_id: payload.video_id, policy: payload.policy,
+          youtube_session_revision: payload.youtube_session_revision ?? null,
+          youtube_auth_required: Boolean(payload.youtube_cookie),
+          ...(payload.youtube_cookie ? { youtube_cookie: payload.youtube_cookie } : {}),
+          status: 'queued', created_at: created, updated_at: created, expires_at: null, artifact: null,
+          error: null, process: null, acknowledged_sha256: null,
+        };
         await write(job); await syncDirectory(root);
         return { created: true, job: envelope(job) };
       });

@@ -52,6 +52,20 @@ test('durable admission, replay and exact scoped envelope never expose paths/URL
   assert.equal((await fs.stat(path.join(root, body.request_id))).mode & 0o777, 0o700);
   assert.equal((await fs.stat(path.join(root, body.request_id, 'journal.json'))).mode & 0o777, 0o600);
 });
+test('authenticated cookie is memory-only and never enters the durable journal', async t => {
+  let seen;
+  const { jobs, root } = await service(t, { extractVideo: async (_id, options) => { seen = options.youtubeCookie; return {}; } });
+  const cookie = '#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\tsecret-cookie';
+  const body = payload({ youtube_cookie: cookie, youtube_session_revision: 7 });
+  await jobs.admit(body);
+  const journal = await fs.readFile(path.join(root, body.request_id, 'journal.json'), 'utf8');
+  assert.equal(journal.includes(cookie), false);
+  assert.equal(JSON.parse(journal).youtube_session_revision, 7);
+  await jobs.idle();
+  assert.equal(seen, cookie);
+  await assert.rejects(fs.stat(path.join(root, body.request_id, 'cookies.txt')), { code: 'ENOENT' });
+  assert.equal((await jobs.get(body.request_id, workspace, perfil)).status, 'ready');
+});
 test('same video different profiles has distinct immutable artifact and identity', async t => {
   const { jobs, root } = await service(t);
   const a = payload(); const b = payload({ perfil_id: other });
@@ -170,6 +184,16 @@ test('HTTP authentication is fail-closed and strict request/scopes are enforced'
   const oversized = await a.request('', { method: 'POST', body: JSON.stringify({ text: 'x'.repeat(5000) }) }); assert.equal(oversized.status, 400);
   const missing = await api(t, { apiKey: '' }); assert.equal((await missing.request('')).status, 503);
   assert.equal(await (await fetch(a.base + '/api/v1/audio/transcribe-url')).text(), 'legacy');
+});
+test('HTTP authenticated payload accepts bounded cookie and rejects an unbounded one', async t => {
+  const a = await api(t);
+  const body = payload({ youtube_cookie: '#HttpOnly_.youtube.com\\tTRUE\\t/\\tTRUE\\t1893456000\\tSID\\tsecret', youtube_session_revision: 3 });
+  const created = await a.request('', { method: 'POST', body: JSON.stringify(body) });
+  assert.equal(created.status, 202);
+  assert.equal((await created.json()).job_id, body.request_id);
+  await a.jobs.idle();
+  const oversized = await a.request('', { method: 'POST', body: JSON.stringify(payload({ youtube_cookie: 'x'.repeat(1_048_577), youtube_session_revision: 3 })) });
+  assert.equal(oversized.status, 400);
 });
 test('HTTP creation/status/file/ACK contract is exact, scoped and non-redirecting', async t => {
   const a = await api(t); const body = payload();

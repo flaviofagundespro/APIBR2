@@ -83,6 +83,22 @@ test('extractor flags and env exclude inherited personal credentials/config/plug
   assert.deepEqual(Object.keys(safeEnv('/isolated')).sort(), ['LANG', 'LC_ALL', 'PATH', 'TMPDIR', 'YTDLP_NO_PLUGINS']);
   assert.throws(() => extractorArgs('../cookies', 'proxy'), code('invalid_request'));
 });
+test('authenticated extractor receives a private cookie file and removes it after execution', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'soria-cookie-test-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const cookie = '#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t1893456000\tSID\tsecret-cookie';
+  const proxy = async () => ({ url: 'http://127.0.0.1:99', signal: new AbortController().signal, close: async () => {} });
+  const output = await extract(id, { dir, createProxy: proxy, youtubeCookie: cookie, run: async (_bin, args) => {
+    const cookiePath = args[args.indexOf('--cookies') + 1];
+    assert.equal(args.includes('--no-cookies'), false);
+    assert.equal(await fs.readFile(cookiePath, 'utf8'), cookie);
+    assert.equal((await fs.stat(cookiePath)).mode & 0o777, 0o600);
+    assert.equal(args.includes(cookie), false);
+    return JSON.stringify(info());
+  } });
+  assert.equal(output.parts.length, 1);
+  await assert.rejects(fs.stat(path.join(dir, 'cookies.txt')), { code: 'ENOENT' });
+});
 test('selection requires exact ID, single public/unlisted finite non-live source', () => {
   assert.equal(selectFormats(info(), id).parts.length, 1);
   for (const patch of [{ id: 'other-id' }, { _type: 'playlist' }, { entries: [] }]) assert.throws(() => selectFormats(info(patch), id), code('source_unavailable'));

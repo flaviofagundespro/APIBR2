@@ -3,7 +3,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { ImportError, fail, MAX_BYTES, VIDEO_ID, mediaURL, createMetadataProxy, checkAbort, abortError } = require('./security');
+const { ImportError, fail, MAX_BYTES, MAX_COOKIE_BYTES, VIDEO_ID, mediaURL, createMetadataProxy, checkAbort, abortError } = require('./security');
 
 function safeEnv(dir) {
   return { PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8',
@@ -74,9 +74,10 @@ async function runBounded(bin, args, { dir, signal, timeoutMs = 30_000, stdoutLi
   });
 }
 
-function extractorArgs(videoId, proxy) {
+function extractorArgs(videoId, proxy, cookiePath) {
   if (!VIDEO_ID.test(videoId)) fail('invalid_request', 400);
-  return ['--ignore-config', '--no-plugin-dirs', '--no-remote-components', '--no-cookies',
+  const cookies = cookiePath ? ['--cookies', cookiePath] : ['--no-cookies'];
+  return ['--ignore-config', '--no-plugin-dirs', '--no-remote-components', ...cookies,
     '--no-cookies-from-browser', '--no-exec', '--no-cache-dir', '--no-playlist', '--skip-download',
     '--dump-single-json', '--no-warnings', '--socket-timeout', '15', '--retries', '0',
     '--extractor-retries', '0', '--proxy', proxy, '--', `https://www.youtube.com/watch?v=${videoId}`];
@@ -111,16 +112,26 @@ function selectFormats(info, expectedId) {
   return { duration: info.duration, hasAudio, parts: withinLimit[0].map(f => ({ url: f.url, hasAudio: f.acodec !== 'none' })) };
 }
 async function extract(videoId, options) {
-  const proxy = await (options.createProxy || createMetadataProxy)({ signal: options.signal, lookup: options.lookup });
+  const cookiePath = options.youtubeCookie ? path.join(options.dir, 'cookies.txt') : null;
+  if (options.youtubeCookie && Buffer.byteLength(options.youtubeCookie, 'utf8') > MAX_COOKIE_BYTES) fail('invalid_request', 400);
+  let proxy;
   try {
+    if (cookiePath) {
+      await fs.writeFile(cookiePath, options.youtubeCookie, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+      await fs.chmod(cookiePath, 0o600);
+    }
+    proxy = await (options.createProxy || createMetadataProxy)({ signal: options.signal, lookup: options.lookup });
     const output = await (options.run || runBounded)(options.ytDlp || '/home/ubuntu/.local/bin/yt-dlp',
-      extractorArgs(videoId, proxy.url), { ...options, signal: proxy.signal, timeoutMs: 45_000 });
+      extractorArgs(videoId, proxy.url, cookiePath), { ...options, signal: proxy.signal, timeoutMs: 45_000 });
     if (proxy.failure) throw proxy.failure;
     let info;
     try { info = JSON.parse(output); } catch { fail('upstream_error'); }
     return selectFormats(info, videoId);
-  } catch (error) { throw proxy.failure || error; }
-  finally { await proxy.close(); }
+  } catch (error) { throw proxy?.failure || error; }
+  finally {
+    await proxy?.close();
+    if (cookiePath) await fs.unlink(cookiePath).catch(() => {});
+  }
 }
 
 module.exports = { safeEnv, processIdentity, killOwnedProcess, runBounded, extractorArgs, selectFormats, extract };

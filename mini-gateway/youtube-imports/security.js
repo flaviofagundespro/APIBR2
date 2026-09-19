@@ -14,6 +14,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 const SHA = /^[a-f0-9]{64}$/;
 const MAX_BYTES = 50_000_000;
+const MAX_COOKIE_BYTES = 1_048_576;
 
 function publicIPv4(value) {
   if (net.isIP(value) !== 4) return false;
@@ -131,4 +132,4 @@ async function createMetadataProxy({ signal, lookup, connect = net.connect, maxB
 }
 
 module.exports = { ImportError, fail, safeCode, UUID, VIDEO_ID, SHA, MAX_BYTES, publicIPv4,
-  metadataHost, mediaURL, pinnedAddress, createMetadataProxy, checkAbort, abortable, abortError };
+  metadataHost, mediaURL, pinnedAddress, createMetadataProxy, checkAbort, abortable, abortError, MAX_COOKIE_BYTES };
