@@ -78,6 +78,7 @@ function extractorArgs(videoId, proxy, cookiePath) {
   if (!VIDEO_ID.test(videoId)) fail('invalid_request', 400);
   const cookies = cookiePath ? ['--cookies', cookiePath] : ['--no-cookies'];
   return ['--ignore-config', '--no-plugin-dirs', '--no-remote-components', ...cookies,
+    '--js-runtimes', `node:${process.execPath}`,
     '--no-cookies-from-browser', '--no-exec', '--no-cache-dir', '--no-playlist', '--skip-download',
     '--dump-single-json', '--no-warnings', '--socket-timeout', '15', '--retries', '0',
     '--extractor-retries', '0', '--proxy', proxy, '--', `https://www.youtube.com/watch?v=${videoId}`];

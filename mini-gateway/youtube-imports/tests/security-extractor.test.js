@@ -80,6 +80,7 @@ test('extractor flags and env exclude inherited personal credentials/config/plug
   for (const flag of ['--ignore-config', '--no-plugin-dirs', '--no-remote-components', '--no-cookies', '--no-cookies-from-browser', '--no-exec', '--no-cache-dir', '--no-playlist', '--skip-download', '--dump-single-json']) assert.ok(args.includes(flag));
   assert.equal(args.at(-1), `https://www.youtube.com/watch?v=${id}`);
   assert.equal(args.includes('--netrc'), false);
+  assert.equal(args[args.indexOf('--js-runtimes') + 1], `node:${process.execPath}`);
   assert.deepEqual(Object.keys(safeEnv('/isolated')).sort(), ['LANG', 'LC_ALL', 'PATH', 'TMPDIR', 'YTDLP_NO_PLUGINS']);
   assert.throws(() => extractorArgs('../cookies', 'proxy'), code('invalid_request'));
 });
