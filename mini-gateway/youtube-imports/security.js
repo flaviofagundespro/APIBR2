@@ -4,7 +4,7 @@ const dns = require('node:dns').promises;
 const http = require('node:http');
 const net = require('node:net');
 
-const CODES = new Set('invalid_request unauthorized unavailable conflict queue_full not_found not_ready artifact_expired artifact_mismatch source_unavailable source_requires_auth source_live source_too_long media_incompatible size_limit time_limit network_blocked upstream_error interrupted internal_error'.split(' '));
+const CODES = new Set('invalid_request unauthorized unavailable conflict queue_full not_found not_ready artifact_expired artifact_mismatch source_unavailable source_requires_auth source_live source_too_long media_incompatible size_limit time_limit network_blocked upstream_error conversion_failed validation_failed interrupted internal_error'.split(' '));
 class ImportError extends Error {
   constructor(code, status = 502) { super(code); this.code = CODES.has(code) ? code : 'internal_error'; this.status = status; }
 }
@@ -14,6 +14,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 const SHA = /^[a-f0-9]{64}$/;
 const MAX_BYTES = 50_000_000;
+const SOURCE_MAX_BYTES = 200_000_000;
 const MAX_COOKIE_BYTES = 1_048_576;
 
 function publicIPv4(value) {
@@ -131,5 +132,5 @@ async function createMetadataProxy({ signal, lookup, connect = net.connect, maxB
   };
 }
 
-module.exports = { ImportError, fail, safeCode, UUID, VIDEO_ID, SHA, MAX_BYTES, publicIPv4,
+module.exports = { ImportError, fail, safeCode, UUID, VIDEO_ID, SHA, MAX_BYTES, SOURCE_MAX_BYTES, publicIPv4,
   metadataHost, mediaURL, pinnedAddress, createMetadataProxy, checkAbort, abortable, abortError, MAX_COOKIE_BYTES };

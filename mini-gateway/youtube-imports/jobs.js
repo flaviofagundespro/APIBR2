@@ -86,7 +86,7 @@ function envelope(job) {
 }
 async function createJobService({ root = path.join(__dirname, '../tmp/youtube-imports'),
   extractVideo = extract, downloadMedia = obtainMedia, now = Date.now, maxJournals = 10_000,
-  maxDiskBytes = 500_000_000, queueLimit = 5, queueMs = 600_000, jobMs = 180_000,
+  maxDiskBytes = 500_000_000, queueLimit = 5, queueMs = 600_000, jobMs = 600_000,
   retentionMs = 86_400_000, sweepMs = 30_000, ...pipelineOptions } = {}) {
   await secureDirectory(root);
   const releaseLock = await acquireLock(root);
@@ -97,6 +97,10 @@ async function createJobService({ root = path.join(__dirname, '../tmp/youtube-im
   const lifetime = new AbortController();
   const iso = () => new Date(now()).toISOString();
   const dirOf = id => path.join(root, id);
+  async function hasDiskBudget() {
+    const disk = await fs.statfs(root);
+    return await diskUsage(root) + 300_000_000 <= maxDiskBytes && disk.bavail * disk.bsize >= 300_000_000;
+  }
   const transaction = fn => {
     const result = serial.then(fn);
     serial = result.catch(() => {});
@@ -151,7 +155,7 @@ async function createJobService({ root = path.join(__dirname, '../tmp/youtube-im
           await transition(queued.request_id, { status: 'failed', error: { code: 'time_limit' } });
           return { skipped: true };
         }
-        if (await diskUsage(root) + 100_000_000 > maxDiskBytes) {
+        if (!(await hasDiskBudget())) {
           await transition(queued.request_id, { status: 'failed', error: { code: 'unavailable' } });
           return { skipped: true };
         }
@@ -171,7 +175,10 @@ async function createJobService({ root = path.join(__dirname, '../tmp/youtube-im
       timeout.unref();
       const signal = AbortSignal.any([lifetime.signal, deadline.signal]);
       try {
-        const options = { ...pipelineOptions, dir: dirOf(job.request_id), signal,
+        const options = { ...pipelineOptions, dir: dirOf(job.request_id), signal, policy: job.policy,
+          onMetric: metric => transaction(() => transition(job.request_id, { normalization_metrics: {
+            elapsed_ms: metric.elapsed_ms, source_bytes: metric.source_bytes, final_bytes: metric.final_bytes,
+          } })),
           onProcess: identity => transaction(() => transition(job.request_id, { process: identity })) };
         await cleanup(job.request_id, false);
         const extractOptions = job.youtube_cookie ? { ...options, youtubeCookie: job.youtube_cookie } : options;
@@ -240,7 +247,7 @@ async function createJobService({ root = path.join(__dirname, '../tmp/youtube-im
           }
           return { created: false, job: envelope(await expire(existing)) };
         }
-        if (jobs.size >= maxJournals || await diskUsage(root) + 100_000_000 > maxDiskBytes) fail('unavailable', 503);
+        if (jobs.size >= maxJournals || !(await hasDiskBudget())) fail('unavailable', 503);
         const occupied = [...jobs.values()].filter(j => j.status === 'queued' || WORKING.has(j.status)).length;
         if (occupied >= queueLimit + 1) fail('queue_full', 429);
         await fs.mkdir(dirOf(payload.request_id), { mode: 0o700 });

@@ -22,7 +22,7 @@ function openResponse(url, address, signal) {
     req.end();
   });
 }
-async function downloadPart(input, destination, budget, { signal, lookup, request = openResponse } = {}) {
+async function downloadPart(input, destination, budget, { signal, lookup, request = openResponse, policy } = {}) {
   let url = mediaURL(input);
   let response;
   let file;
@@ -40,7 +40,7 @@ async function downloadPart(input, destination, budget, { signal, lookup, reques
     if (response.statusCode !== 200 || response.headers['content-range']) fail('upstream_error');
     if (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity') fail('media_incompatible');
     const mime = (response.headers['content-type'] || '').split(';')[0].toLowerCase();
-    if (!['video/mp4', 'audio/mp4', 'application/octet-stream'].includes(mime)) fail('media_incompatible');
+    if (!(policy === 'soria-reel-v2' ? ['video/mp4', 'audio/mp4', 'video/webm', 'audio/webm', 'application/octet-stream'] : ['video/mp4', 'audio/mp4', 'application/octet-stream']).includes(mime)) fail('media_incompatible');
     const length = response.headers['content-length'];
     if (length !== undefined && (!/^\d+$/.test(length) || !Number.isSafeInteger(Number(length)))) fail('upstream_error');
     if (length !== undefined && Number(length) + budget.bytes > budget.max) fail('size_limit');
@@ -102,6 +102,7 @@ async function hashFile(file, signal) {
 }
 function phaseSignal(parent, ms) { return AbortSignal.any([parent, AbortSignal.timeout(ms)]); }
 async function obtainMedia(selection, options) {
+  if (options.policy === 'soria-reel-v2') return require('./normalize').obtainNormalizedMedia(selection, options);
   if (!selection.parts?.length || selection.parts.length > 2) fail('media_incompatible');
   const { dir, signal } = options;
   const budget = { bytes: 0, max: MAX_BYTES };

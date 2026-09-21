@@ -64,7 +64,7 @@ function createYoutubeImportsRouter({ apiKey, service, ...options } = {}) {
               (hasCookie && (typeof body.youtube_cookie !== 'string' || Buffer.byteLength(body.youtube_cookie, 'utf8') < 1 || Buffer.byteLength(body.youtube_cookie, 'utf8') > MAX_COOKIE_BYTES ||
                 !Number.isSafeInteger(body.youtube_session_revision) || body.youtube_session_revision < 1)) ||
               !UUID.test(body.request_id) || body.workspace_id !== workspace || body.perfil_id !== perfil ||
-              !VIDEO_ID.test(body.video_id) || body.policy !== 'soria-reel-v1') fail('invalid_request', 400);
+              !VIDEO_ID.test(body.video_id) || !['soria-reel-v1', 'soria-reel-v2'].includes(body.policy)) fail('invalid_request', 400);
           const result = await jobs.admit(body);
           return send(res, result.created ? 202 : 200, result.job);
         }

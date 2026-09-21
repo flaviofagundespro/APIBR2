@@ -217,3 +217,17 @@ test('legacy server bytes survive after removing only the integration additions'
   assert.equal(crypto.createHash('sha256').update(restored).digest('hex'), 'be76284da227ffa4b124cfec7fa84c3f5a28681b0ff9a033bab303b960198ef9');
   assert.ok(server.indexOf('youtubeImports.matches(url)') < server.indexOf("if (API_KEY && req.headers"));
 });
+
+test('v2 policy reaches both phases and replay cannot change it', async t => {
+  const seen = [];
+  const { jobs, root } = await service(t, {
+    extractVideo: async (_id, options) => { seen.push(options.policy); return {}; },
+    downloadMedia: async (selection, options) => { seen.push(options.policy); return downloadMedia(selection, options); },
+  });
+  const body = payload({ policy: 'soria-reel-v2' });
+  await jobs.admit(body); await jobs.idle();
+  assert.deepEqual(seen, ['soria-reel-v2', 'soria-reel-v2']);
+  assert.equal(JSON.parse(await fs.readFile(path.join(root, body.request_id, 'journal.json'))).policy, 'soria-reel-v2');
+  await assert.rejects(jobs.admit({ ...body, policy: 'soria-reel-v1' }), code('conflict'));
+  assert.equal((await jobs.get(body.request_id, workspace, perfil)).status, 'ready');
+});

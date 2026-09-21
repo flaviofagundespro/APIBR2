@@ -3,7 +3,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { ImportError, fail, MAX_BYTES, MAX_COOKIE_BYTES, VIDEO_ID, mediaURL, createMetadataProxy, checkAbort, abortError } = require('./security');
+const { ImportError, fail, MAX_BYTES, SOURCE_MAX_BYTES, MAX_COOKIE_BYTES, VIDEO_ID, mediaURL, createMetadataProxy, checkAbort, abortError } = require('./security');
 
 function safeEnv(dir) {
   return { PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8',
@@ -37,7 +37,7 @@ if (require.main === module && process.argv[2] === '--runner') {
 }
 
 async function runBounded(bin, args, { dir, signal, timeoutMs = 30_000, stdoutLimit = 2 * 1024 * 1024,
-  stderrLimit = 256 * 1024, onProcess = async () => {}, spawnProcess = spawn } = {}) {
+  stderrLimit = 256 * 1024, onProcess = async () => {}, spawnProcess = spawn, failureCode = 'source_unavailable' } = {}) {
   checkAbort(signal);
   const child = spawnProcess(process.execPath, [__filename, '--runner'], {
     cwd: dir, env: safeEnv(dir), detached: true, stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
@@ -56,10 +56,10 @@ async function runBounded(bin, args, { dir, signal, timeoutMs = 30_000, stdoutLi
     signal?.addEventListener('abort', aborted, { once: true });
     child.stdout.on('data', chunk => { outBytes += chunk.length; if (outBytes > stdoutLimit) finish(new ImportError('size_limit')); else out.push(chunk); });
     child.stderr.on('data', chunk => { errBytes += chunk.length; if (errBytes > stderrLimit) finish(new ImportError('size_limit')); else err.push(chunk); });
-    child.on('error', () => finish(new ImportError('unavailable')));
+    child.on('error', () => finish(new ImportError(failureCode === 'source_unavailable' ? 'unavailable' : failureCode)));
     child.on('close', code => {
       const stderr = Buffer.concat(err).toString('utf8');
-      if (code !== 0) return finish(new ImportError(/sign.?in|login|private|authentication|cookies/i.test(stderr) ? 'source_requires_auth' : 'source_unavailable'));
+      if (code !== 0) return finish(new ImportError(/sign.?in to confirm|confirm you.?re not a bot|private video|members.?only|age.?restricted/i.test(stderr) ? 'source_requires_auth' : failureCode));
       finish(null, Buffer.concat(out).toString('utf8'));
     });
     (async () => {
@@ -88,11 +88,12 @@ const audioOK = f => /^mp4a\.40\.|^aac$/.test(f.acodec || '') && f.asr === 48000
 const videoOK = f => /^(avc1(?:\.|$)|h264$)/.test(f.vcodec || '') &&
   ((f.width === 720 && f.height === 1280) || (f.width === 1080 && f.height === 1920)) &&
   Number.isFinite(f.fps) && f.fps >= 24 && f.fps <= 60;
-function direct(f) {
-  if (!f || f.protocol !== 'https' || !['mp4', 'm4a'].includes(f.ext) || f.manifest_url || f.fragments) return false;
+function direct(f, allowWebm = false) {
+  const extensions = allowWebm ? ['mp4', 'm4a', 'webm'] : ['mp4', 'm4a'];
+  if (!f || f.protocol !== 'https' || !extensions.includes(f.ext) || f.manifest_url || f.fragments) return false;
   try { mediaURL(f.url); return true; } catch { return false; }
 }
-function selectFormats(info, expectedId) {
+function selectFormats(info, expectedId, policy = 'soria-reel-v1') {
   if (!info || info.id !== expectedId || (info._type && info._type !== 'video') || info.entries) fail('source_unavailable');
   if (info.is_live || info.is_upcoming || !['not_live', 'was_live'].includes(info.live_status)) fail('source_live');
   if (!['public', 'unlisted'].includes(info.availability)) fail('source_requires_auth');
@@ -100,7 +101,25 @@ function selectFormats(info, expectedId) {
   if (info.duration > 180) fail('source_too_long');
   const formats = Array.isArray(info.formats) ? info.formats : [];
   const hasAudio = formats.some(f => typeof f.acodec === 'string' && f.acodec !== 'none');
-  const compatible = formats.filter(direct);
+  if (policy === 'soria-reel-v2') {
+    const available = formats.filter(f => direct(f, true));
+    const videos = available.filter(f => f.vcodec && f.vcodec !== 'none' &&
+      /^(avc1|h264|vp0?9|av01)/.test(f.vcodec) && f.width > 0 && f.height > 0 &&
+      Math.max(f.width, f.height) <= 1920 && f.fps > 0 && f.fps <= 60);
+    const audios = available.filter(f => f.vcodec === 'none' && f.acodec && f.acodec !== 'none');
+    // Prefer the original/default language; avoid selecting an arbitrary dubbed track.
+    audios.sort((a, b) => (b.language_preference || 0) - (a.language_preference || 0) ||
+      Number(/mp4a|aac/.test(b.acodec)) - Number(/mp4a|aac/.test(a.acodec)) ||
+      (b.abr || 0) - (a.abr || 0));
+    videos.sort((a, b) => Math.abs(Math.min(a.width, a.height) - 720) - Math.abs(Math.min(b.width, b.height) - 720) ||
+      Number(/avc1|h264/.test(b.vcodec)) - Number(/avc1|h264/.test(a.vcodec)));
+    const candidates = videos.map(v => v.acodec !== 'none' ? [v] : hasAudio ? [v, audios[0]] : [v])
+      .filter(parts => parts.every(Boolean));
+    const chosen = candidates.find(parts => parts.reduce((sum, f) => sum + (f.filesize || f.filesize_approx || 0), 0) <= SOURCE_MAX_BYTES);
+    if (!chosen) fail(candidates.length ? 'size_limit' : 'media_incompatible');
+    return { duration: info.duration, hasAudio, parts: chosen.map(f => ({ url: f.url, hasAudio: f.acodec !== 'none' })) };
+  }
+  const compatible = formats.filter(f => direct(f));
   const combined = compatible.filter(f => videoOK(f) && f.ext === 'mp4' && audioOK(f));
   const video = compatible.filter(f => videoOK(f) && f.ext === 'mp4' && f.acodec === 'none');
   const audio = compatible.filter(f => f.vcodec === 'none' && audioOK(f));
@@ -127,7 +146,7 @@ async function extract(videoId, options) {
     if (proxy.failure) throw proxy.failure;
     let info;
     try { info = JSON.parse(output); } catch { fail('upstream_error'); }
-    return selectFormats(info, videoId);
+    return selectFormats(info, videoId, options.policy);
   } catch (error) { throw proxy?.failure || error; }
   finally {
     await proxy?.close();
