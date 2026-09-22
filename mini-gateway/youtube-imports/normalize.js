@@ -25,9 +25,13 @@ function encodingPlan(probes, selection, sourceBytes, retry = false) {
   if (videoRate < 256_000) fail('size_limit');
   const fps = fpsOf(video);
   const copyVideo = !retry && sourceBytes < MAX_BYTES * 0.85 && video.codec_name === 'h264' && video.pix_fmt === 'yuv420p' && (!video.sample_aspect_ratio || video.sample_aspect_ratio === '1:1') &&
+    !(video.side_data_list || []).some(s => Number(s.rotation)) &&
     ((video.width === 720 && video.height === 1280) || (video.width === 1080 && video.height === 1920)) && fps >= 24 && fps <= 60;
   const copyAudio = audio?.codec_name === 'aac' && Number(audio.sample_rate) === 48000 && [1, 2].includes(audio.channels);
-  return { copyVideo, copyAudio, videoRate, hasAudio: Boolean(audio) };
+  // AAC decoding/resampling may add sub-frame encoder padding. Keep exactly
+  // the declared source samples; never shorten video or trim to fit bytes.
+  const audioDuration = Number(audio?.duration) > 0 ? Number(audio.duration) : selection.duration;
+  return { copyVideo, copyAudio, videoRate, hasAudio: Boolean(audio), audioSamples: Math.round(audioDuration * 48000) };
 }
 function normalizeArgs(parts, output, plan) {
   const args = ['-nostdin', '-hide_banner', '-v', 'error', '-xerror', '-n', '-filter_threads', '2', '-filter_complex_threads', '2'];
@@ -38,7 +42,7 @@ function normalizeArgs(parts, output, plan) {
   else args.push('-vf', 'scale=trunc(iw*sar/2)*2:ih,setsar=1,scale=720:1280:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30',
     '-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-b:v', String(plan.videoRate),
     '-maxrate', String(plan.videoRate), '-bufsize', String(plan.videoRate * 2), '-threads:v', '2');
-  if (plan.hasAudio) args.push('-c:a', plan.copyAudio ? 'copy' : 'aac', ...(plan.copyAudio ? [] : ['-ar', '48000', '-ac', '2', '-b:a', '128k', '-threads:a', '2']));
+  if (plan.hasAudio) args.push('-c:a', plan.copyAudio ? 'copy' : 'aac', ...(plan.copyAudio ? [] : ['-af', `aresample=48000,atrim=end_sample=${plan.audioSamples}`, '-ar', '48000', '-ac', '2', '-b:a', '128k', '-threads:a', '2']));
   args.push('-map_metadata', '-1', '-map_chapters', '-1', '-movflags', '+faststart', '-f', 'mp4', output);
   return args;
 }

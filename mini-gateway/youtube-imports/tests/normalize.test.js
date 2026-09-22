@@ -11,6 +11,7 @@ const { selectFormats } = require('../extractor');
 const { validateProbe } = require('../media');
 
 for (const fixture of [
+  { name: 'maximum180 seconds AAC44100', duration: 180, video: 'libx264', audio: 'aac', rate: 44100, size: '160x90', ext: 'mp4' },
   { name: 'vertical AAC44100', video: 'libx264', audio: 'aac', rate: 44100, size: '720x1280', ext: 'mp4' },
   { name: 'horizontal VP9 Opus', video: 'libvpx-vp9', audio: 'libopus', rate: 48000, size: '320x180', ext: 'webm' },
   { name: 'AV1 horizontal', video: 'libaom-av1', audio: 'libopus', rate: 48000, size: '160x90', ext: 'webm' },
@@ -19,20 +20,21 @@ for (const fixture of [
 ]) test(`real complete normalization: ${fixture.name}`, { timeout: 60000 }, async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'normalize-test-'));
   try {
+    const duration = fixture.duration || 3;
     const input = path.join(dir, `source.${fixture.ext}`);
-    const args = ['-v', 'error', '-f', 'lavfi', '-i', `testsrc2=s=${fixture.size}:r=30:d=3`];
-    if (fixture.audio) args.push('-f', 'lavfi', '-i', `sine=frequency=440:sample_rate=${fixture.rate}:duration=3`);
+    const args = ['-v', 'error', '-f', 'lavfi', '-i', `testsrc2=s=${fixture.size}:r=30:d=${duration}`];
+    if (fixture.audio) args.push('-f', 'lavfi', '-i', `sine=frequency=440:sample_rate=${fixture.rate}:duration=${duration}`);
     args.push('-c:v', fixture.video, '-threads', '2');
     if (fixture.video === 'libx264') args.push('-preset', 'ultrafast');
     if (fixture.audio) args.push('-c:a', fixture.audio);
     args.push(input);
     await exec('/usr/bin/ffmpeg', args);
     const size = (await fs.stat(input)).size;
-    const result = await normalizeFiles([input], { duration: 3, hasAudio: Boolean(fixture.audio) }, size,
+    const result = await normalizeFiles([input], { duration, hasAudio: Boolean(fixture.audio) }, size,
       { dir, signal: new AbortController().signal });
     assert.equal(result.mime_type, 'video/mp4');
     assert.match(result.sha256, /^[a-f0-9]{64}$/);
-    assert.ok(result.duration_seconds >= 3 && result.duration_seconds <= 4);
+    assert.ok(Math.abs(result.duration_seconds - duration) <= 1);
     const { stdout } = await exec('/usr/bin/ffprobe', ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', path.join(dir, 'artifact.mp4')]);
     validateProbe(JSON.parse(stdout), Boolean(fixture.audio));
     assert.equal(await fs.stat(input).then(() => true, () => false), false);
